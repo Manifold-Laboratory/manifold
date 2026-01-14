@@ -11,7 +11,12 @@
 torch::Tensor christoffel_fused_cuda(
     torch::Tensor v,
     torch::Tensor U,
-    torch::Tensor W
+    torch::Tensor W,
+    torch::Tensor x,
+    torch::Tensor V_w,
+    float plasticity,
+    float sing_thresh,
+    float sing_strength
 );
 
 std::vector<torch::Tensor> leapfrog_fused_cuda(

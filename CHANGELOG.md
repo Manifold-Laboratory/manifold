@@ -2,6 +2,22 @@
 
 All notable changes to the MANIFOLD project will be documented in this file.
 
+## [v0.5.0] - Cognitive Dynamics (Active Inference)
+**"The Awakening"** - Transforming Manifold from a static geometry into a reactive cognitive system.
+
+### Core Features
+- **Cognitive Physics Engine**: A completely new dynamical system in `src/geometry.py` that reacts to internal states.
+    - **Reactive Curvature**: Manifold stiffens ($\Gamma \uparrow$) in response to high kinetic energy (uncertainty).
+    - **Logical Singularities**: High semantic potential triggers "Event Horizons" (attractors) to stabilize decisions.
+- **Autonomous Geometric Attention**: `TimeDilationHead` allows each processing thread to learn its own time-flow ($dt$), effectively creating wormholes to skip irrelevant data.
+- **Recursive Geodesics**: Layers now project "curvature context" to subsequent layers, enabling hierarchical steering control.
+
+### Breaking Changes
+- **API Unification**: Renamed all `GLayer` instances to `MLayer`.
+- **Configuration**: Introduced `physics_config` dict for fine-grained control of cognitive dynamics.
+
+---
+
 ## [v0.4.0] - High-Performance Kernel & Stability
 **"The Engine Update"** - Achieving production-grade inference speed and numerical stability.
 

@@ -14,14 +14,11 @@
  *   - Expected speedup: 4-5x
  */
 
+#include <torch/extension.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <vector>
 #include <cmath>
-#include <valarray>
-#include <forward_list>
-
-#include <torch/extension.h>
 
 #define BLOCK_SIZE 256
 #define MAX_RANK 128

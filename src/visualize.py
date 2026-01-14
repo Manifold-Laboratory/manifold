@@ -1,6 +1,6 @@
 import torch
 import matplotlib.pyplot as plt
-from src.model import GFN
+from src.model import Manifold
 from src.math_dataset import MathDataset
 
 def visualize_gating(model_path, test_str="88+11="):
@@ -13,7 +13,7 @@ def visualize_gating(model_path, test_str="88+11="):
     # Init and Load Model
     # Assuming standard architecture (dim=128, depth=4, etc.)
     # In a real scenario, we'd load these from a config file
-    model = GFN(vocab_size, dim=128, depth=4, rank=64).to(device)
+    model = Manifold(vocab_size, dim=128, depth=4, rank=64).to(device)
     try:
         model.load_state_dict(torch.load(model_path, map_location=device))
         print(f"Loaded model from {model_path}")
@@ -29,13 +29,14 @@ def visualize_gating(model_path, test_str="88+11="):
     gates_log = []
     
     def hook_fn(module, input, output):
-        # output is the gate value [batch, 1]
+        # output is the gate value [batch, 1] (or dt_scale)
         gates_log.append(output.detach().cpu().numpy())
 
-    # Register hooks on all RiemannianGating modules
+    # Register hooks on all RiemannianGating modules OR TimeDilationHead
     hooks = []
     for name, module in model.named_modules():
-        if "RiemannianGating" in str(type(module)):
+        mod_type = str(type(module))
+        if "RiemannianGating" in mod_type or "TimeDilationHead" in mod_type:
             hooks.append(module.register_forward_hook(hook_fn))
             
     with torch.no_grad():

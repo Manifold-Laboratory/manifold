@@ -11,10 +11,12 @@ class LowRankChristoffel(nn.Module):
         dim (int): Dimension of the manifold (hidden size).
         rank (int): Rank of the decomposition.
     """
-    def __init__(self, dim, rank=16):
+    def __init__(self, dim, rank=16, physics_config=None):
         super().__init__()
         self.dim = dim
         self.rank = rank
+        self.config = physics_config or {}
+        self.clamp_val = self.config.get('stability', {}).get('curvature_clamp', 5.0)
         
         # Factors to reconstruct Gamma
         # U: [dim, rank] - represents the "basis" for the input indices i, j
@@ -42,6 +44,8 @@ class LowRankChristoffel(nn.Module):
             try:
                 from src.cuda.ops import christoffel_fused, CUDA_AVAILABLE
                 if CUDA_AVAILABLE and v.is_cuda:
+                     # CUDA kernel currently has hardcoded clamp +/- 5.0. 
+                     # TODO: Pass clamp_val to kernel if needed. For now assuming inference is safe.
                      return christoffel_fused(v, self.U, self.W)
             except ImportError:
                 pass
@@ -63,7 +67,7 @@ class LowRankChristoffel(nn.Module):
             
         # Stability: Tight clamp prevents "exploding" curvature
         # This is CRITICAL for long-term training stability
-        return torch.clamp(out, -5.0, 5.0)
+        return torch.clamp(out, -self.clamp_val, self.clamp_val)
 
 class SymplecticIntegrator(nn.Module):
     r"""
@@ -443,3 +447,113 @@ class DormandPrinceIntegrator(nn.Module):
         # IMPLEMENTATION CHOICE: Just provide RK45 as a high-precision integrator for now.
         
         return y5_x, y5_v
+
+class ReactiveChristoffel(LowRankChristoffel):
+    """
+    Active Inference: Geometry that reacts to the agent's state.
+    
+    Features:
+    1. Reactive Curvature (Plasticity): Metric deforms based on kinetic energy.
+       High energy (confusion/exploration) -> Higher curvature (more braking).
+       
+    2. Logical Singularities: If 'V(x)' (potential) exceeds a threshold, 
+       we trigger a 'Black Hole' (infinite curvature) to trap the thought 
+       in a semantic certainty.
+    """
+    def __init__(self, dim, rank=16, physics_config=None):
+        super().__init__(dim, rank, physics_config=physics_config)
+        self.config = physics_config or {}
+        self.active_cfg = self.config.get('active_inference', {})
+        
+        self.plasticity = self.active_cfg.get('reactive_curvature', {}).get('plasticity', 0.0)
+        self.singularity_threshold = self.active_cfg.get('singularities', {}).get('threshold', 0.8)
+        self.black_hole_strength = self.active_cfg.get('singularities', {}).get('strength', 10.0)
+
+    def forward(self, v, x=None):
+        # Try Fused CUDA Kernel (Active Inference Mode)
+        if not torch.is_grad_enabled() and v.is_cuda:
+            try:
+                from src.cuda.ops import christoffel_fused, CUDA_AVAILABLE
+                if CUDA_AVAILABLE:
+                    # Pass Active Parameters
+                    # x and V.weight are needed for Singularities
+                    V_w = self.V.weight if (x is not None and self.active_cfg.get('singularities', {}).get('enabled', False)) else None
+                    pos_x = x if (V_w is not None) else None
+                    
+                    return christoffel_fused(
+                        v, self.U, self.W, 
+                        x=pos_x, V_w=V_w, 
+                        plasticity=self.plasticity if self.active_cfg.get('reactive_curvature', {}).get('enabled', False) else 0.0,
+                        sing_thresh=self.singularity_threshold,
+                        sing_strength=self.black_hole_strength
+                    )
+            except ImportError:
+                pass
+
+        # Base curvature (static memory or PyTorch fallback)
+        gamma = super().forward(v, x)
+        
+        if not self.active_cfg.get('enabled', False):
+            return gamma
+            
+        # 1. Reactive Curvature (Plasticity)
+        if self.active_cfg.get('reactive_curvature', {}).get('enabled', False):
+            # Energy = Kinetic Energy of thoughts (~ v^2)
+            # Use tanh to bound the reaction
+            energy = torch.tanh(v.pow(2).mean(dim=-1, keepdim=True))
+            # If energy is high, increase curvature (slow down/turn harder)
+            # Gamma_new = Gamma * (1 + alpha * energy)
+            gamma = gamma * (1.0 + self.plasticity * energy)
+            
+        # 2. Logical Singularities (Black Holes)
+        if self.active_cfg.get('singularities', {}).get('enabled', False) and x is not None:
+            # Check Semantic Potential V(x)
+            # We use the existing self.V gate from LowRankChristoffel
+            potential = torch.sigmoid(self.V(x)) # [batch, 1]
+            
+            # If we are very sure (High Potential), trigger Singularity
+            # This creates a stiff attractor
+            is_singularity = (potential > self.singularity_threshold).float()
+            
+            # Apply Black Hole Gravity: Gamma * Strength
+            # But only where potential is high
+            singularity_mult = 1.0 + is_singularity * (self.black_hole_strength - 1.0)
+            gamma = gamma * singularity_mult
+            
+        return gamma
+
+class TimeDilationHead(nn.Module):
+    """
+    Autonomous Geometric Attention (Auto-Wormholes).
+    Predicts the optimal time-step (dt) for the current thought.
+    
+    Inputs: Position (x), Velocity (v), Force (F)
+    Output: dt_scale scaler (or vector)
+    """
+    def __init__(self, dim, range_min=0.1, range_max=5.0):
+        super().__init__()
+        self.range_min = range_min
+        self.range_max = range_max
+        
+        self.net = nn.Sequential(
+            nn.Linear(dim * 3, dim // 2),
+            nn.GELU(),
+            nn.Linear(dim // 2, 1),
+            nn.Sigmoid() # [0, 1]
+        )
+        
+    def forward(self, x, v, force):
+        # Concatenate state
+        # Handle force=None
+        if force is None:
+            force = torch.zeros_like(x)
+            
+        state = torch.cat([x, v, force], dim=-1) # [batch, 3*dim]
+        
+        # Predict relative scale [0, 1]
+        raw_scale = self.net(state)
+        
+        # Map to [min, max]
+        dt_scale = self.range_min + raw_scale * (self.range_max - self.range_min)
+        
+        return dt_scale

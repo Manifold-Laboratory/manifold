@@ -28,26 +28,30 @@ class Manifold(nn.Module):
         >>> logits, state = model(input_ids)
     """
     
-    def __init__(self, vocab_size, dim=256, depth=4, rank=32, heads=4, integrator_type='heun', use_scan=False):
+    
+    def __init__(self, vocab_size, dim=256, depth=4, rank=32, heads=4, integrator_type='heun', use_scan=False, physics_config=None):
         super().__init__()
         self.dim = dim
         self.depth = depth
         self.heads = heads
         self.integrator_type = integrator_type
         self.use_scan = use_scan
+        self.physics_config = physics_config or {}
         
         # Token embedding
         self.embedding = nn.Embedding(vocab_size, dim)
         
         # Stack of Multi-Head Manifold Layers
         print(f"🚀 MANIFOLD Init: {depth} layers, {heads} heads, {dim} dim, {integrator_type}, scan={use_scan}")
+        if self.physics_config.get('active_inference', {}).get('enabled', False):
+             print(f"🧠 Active Inference ENABLED (Plasticity, Singularities, Dynamic Time)")
         
         self.layers = nn.ModuleList()
         for _ in range(depth):
             if use_scan:
-                self.layers.append(ParallelMLayer(dim, heads=heads))
+                self.layers.append(ParallelMLayer(dim, heads=heads, physics_config=self.physics_config))
             else:
-                self.layers.append(MLayer(dim, heads=heads, rank=rank, integrator_type=integrator_type))
+                self.layers.append(MLayer(dim, heads=heads, rank=rank, integrator_type=integrator_type, physics_config=self.physics_config))
         
         # Output projection
         self.readout_norm = nn.LayerNorm(dim)
@@ -158,9 +162,11 @@ class Manifold(nn.Module):
                 force = force * mask[:, t]
                 
                 # Evolve state through all M-Layers
+                # Evolve state through all M-Layers
+                context = None
                 for layer in self.layers:
-                    # Update state: x_{l+1}, v_{l+1} = layer(x_l, v_l, force)
-                    x, v = layer(x, v, force)
+                    # Update state: x_{l+1}, v_{l+1}, ctx_{l+1} = layer(x_l, v_l, force, context)
+                    x, v, context = layer(x, v, force, context)
                 
                 # Readout: project position to vocabulary logits
                 out = self.readout_norm(x)

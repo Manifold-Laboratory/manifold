@@ -9,4 +9,24 @@ model:
   heads: 8    # Multi-Head Manifold
   integrator: "leapfrog"
   use_scan: false
-  use_adjoint: false  # Disable for Speed (Standard Backprop is faster on small/medium models)
+  use_adjoint: false
+
+  # Physics Configuration (v0.5 Active Inference)
+  physics:
+    active_inference:
+      enabled: true
+      reactive_curvature:
+        enabled: true
+        plasticity: 0.1
+        decay: 0.95
+      singularities:
+        enabled: true
+        strength: 10.0
+        threshold: 0.8
+      recursive_geodesics:
+        enabled: false
+      dynamic_time:
+        enabled: true
+        range: [0.1, 5.0]
+    stability:
+      curvature_clamp: 10.0 # Increased from 5.0 to allow Singularity spikes

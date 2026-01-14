@@ -3,24 +3,34 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "gfn"
-version = "1.0.0"
-description = "Geodesic Flow Networks: Sequence modeling via Riemannian manifolds"
+name = "manifold"
+version = "0.5.0"
+description = "Manifold: Geometric Intelligence via Symplectic Geodesic Flows"
 readme = "README.md"
-license = {text = "MIT"}
+license = {text = "Apache-2.0  "}
 authors = [
-    {name = "GFN Research Group"}
+    {name = "Manifold Research Team", email = "research@manifold.ai"}
 ]
 requires-python = ">=3.10"
-keywords = ["deep-learning", "transformers", "riemannian-geometry", "sequence-modeling"]
+keywords = [
+    "artificial-intelligence",
+    "deep-learning", 
+    "riemannian-geometry", 
+    "symplectic-integration",
+    "sequence-modeling",
+    "geometric-deep-learning"
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Operating System :: OS Independent",
 ]
-
 dependencies = [
     "torch>=2.0.0",
     "numpy>=1.24.0",
@@ -31,24 +41,40 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-    "black>=23.0.0",
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.7.0",
     "isort>=5.12.0",
+    "flake8>=6.1.0"
+]
+cuda = [
+    "ninja>=1.11.1" 
 ]
 
 [project.urls]
-Homepage = "https://github.com/gfn-research/gfn"
-Documentation = "https://github.com/gfn-research/gfn/docs"
+Homepage = "https://github.com/janxhg/MANIFOLD"
+Documentation = "https://github.com/janxhg/MANIFOLD/tree/main/docs"
+Repository = "https://github.com/janxhg/MANIFOLD.git"
+Issues = "https://github.com/janxhg/MANIFOLD/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["gfn*"]
+include = ["src*", "configs*"]
+namespaces = false
 
 [tool.black]
 line-length = 100
 target-version = ["py310"]
+include = '\.pyi?$'
 
 [tool.isort]
 profile = "black"
 line_length = 100
+multi_line_output = 3
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"
+testpaths = [
+    "tests",
+]

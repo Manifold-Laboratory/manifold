@@ -13,8 +13,9 @@ def verify_kernels():
     print(f"GFN Custom Kernels Loaded: {CUDA_AVAILABLE}")
     
     if not CUDA_AVAILABLE:
-        print("Skipping verification as custom kernels are not loaded.")
-        return
+        print("\n[WARNING] GFN Custom Kernels NOT loaded. Testing PyTorch fallback implementation.")
+        print("Note: Performance will be slower, but logic should be identical.\n")
+        # Do not return, continue to verify fallback logic
 
     device = torch.device('cuda')
     torch.manual_seed(42)
@@ -50,11 +51,60 @@ def verify_kernels():
     print(f"Max Difference (Christoffel): {diff:.6f}")
     
     if diff < 1e-3:
-        print(">> Christoffel Kernel: PASS")
+        print(">> Christoffel Kernel (Base): PASS")
     else:
-        print(">> Christoffel Kernel: FAIL")
+        print(">> Christoffel Kernel (Base): FAIL")
         print(f"CUDA sample: {gamma_cuda[0, :5]}")
         print(f"Ref sample:  {gamma_ref_clamped[0, :5]}")
+
+    # --- Verify Christoffel Active ---
+    print("\n--- Verifying Christoffel Active ---")
+    plasticity = 0.5
+    sing_thresh = 0.5
+    sing_strength = 2.0
+    
+    # Create simple X and V_w to trigger singularity
+    # V_w = ones, x = ones -> dot = dim. sigmoid(dim) ~ 1.0 > 0.5 -> Active
+    x = torch.ones(batch_size, dim, device=device)
+    V_w = torch.ones(1, dim, device=device) # or [dim]
+    
+    # Run CUDA kernel with active params
+    gamma_cuda_p = christoffel_fused(v, U, W, x, V_w, plasticity, sing_thresh, sing_strength)
+    
+    # Reference Calculation
+    gamma_ref_base = torch.clamp(gamma_ref, -5.0, 5.0) # Base clamped
+    
+    # 1. Plasticity Factor
+    # energy = tanh(mean(v^2))
+    energy = torch.tanh(v.pow(2).mean(dim=-1, keepdim=True))
+    plast_factor = 1.0 + plasticity * energy
+    
+    # 2. Singularity Factor
+    # potential = sigmoid(x @ V_w.t())
+    potential = torch.sigmoid(torch.matmul(x, V_w.t()))
+    is_sing = (potential > sing_thresh).float()
+    sing_factor = 1.0 + is_sing * (sing_strength - 1.0)
+    
+    # Combined
+    # Kernel does: val = val_clamped * (plast * sing)
+    # My python implementation in ops.py does sequential Mult.
+    # Mathematically: A * B * C = A * (B*C).
+    # Kernel logic: s_final_mult = plast_mult * sing_mult.
+    # So they are equivalent.
+    
+    gamma_active_ref = gamma_ref_base.cpu() * plast_factor.cpu() * sing_factor.cpu()
+    
+    diff_act = (gamma_cuda_p.cpu() - gamma_active_ref.cpu()).abs().max().item()
+    print(f"Max Difference (Active): {diff_act:.6f}")
+    
+    if diff_act < 1e-3:
+        print(">> Christoffel Kernel (Active): PASS")
+    else:
+        print(">> Christoffel Kernel (Active): FAIL")
+        print(f"CUDA sample: {gamma_cuda_p[0, :5]}")
+        print(f"Ref sample:  {gamma_active_ref.cpu()[0, :5]}")
+        print(f"Plast factor: {plast_factor[0].item()}")
+        print(f"Sing factor: {sing_factor[0].item()}")
 
     # --- Verify Leapfrog Fused ---
     print("\n--- Verifying Leapfrog Fused ---")

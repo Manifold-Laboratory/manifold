@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from .geometry import LowRankChristoffel, SymplecticIntegrator, RK4Integrator, HeunIntegrator, LeapfrogIntegrator, DormandPrinceIntegrator
+from .geometry import LowRankChristoffel, SymplecticIntegrator, RK4Integrator, HeunIntegrator, LeapfrogIntegrator, DormandPrinceIntegrator, ReactiveChristoffel, TimeDilationHead
 from .scan import parallel_scan
 
 class RiemannianGating(nn.Module):
@@ -45,7 +45,7 @@ class MLayer(nn.Module):
         - 'symplectic': Velocity Verlet - Energy preserving
         - 'leapfrog': Störmer-Verlet - Best symplectic
     """
-    def __init__(self, dim, heads=4, rank=16, base_dt=0.1, integrator_type='heun'):
+    def __init__(self, dim, heads=4, rank=16, base_dt=0.1, integrator_type='heun', physics_config=None):
         super().__init__()
         assert dim % heads == 0, f"Dim {dim} must be divisible by heads {heads}"
         
@@ -53,6 +53,7 @@ class MLayer(nn.Module):
         self.heads = heads
         self.head_dim = dim // heads
         self.base_dt = base_dt
+        self.physics_config = physics_config or {}
         
         # 1. Pre-LayerNorm for stability (Standard in modern Transformers)
         self.norm_x = nn.LayerNorm(dim)
@@ -63,8 +64,11 @@ class MLayer(nn.Module):
         # We share the rank budget across heads to keep params similar
         head_rank = max(4, rank // heads)
         
+        # Use ReactiveChristoffel if Active Inference is enabled
+        # It defaults to static behavior if disabled, so safe to use always?
+        # Yes, we implemented it to check its own config.
         self.christoffels = nn.ModuleList([
-            LowRankChristoffel(self.head_dim, head_rank)
+            ReactiveChristoffel(self.head_dim, head_rank, physics_config=self.physics_config)
             for _ in range(heads)
         ])
         
@@ -73,18 +77,29 @@ class MLayer(nn.Module):
             RiemannianGating(self.head_dim) for _ in range(heads)
         ])
         
-        # Integrators per head
-        # Multi-Scale Initialization (Wormholes)
-        # We store params in a single tensor [heads]
-        scale_vals = []
-        for i in range(heads):
-             # Head 0: dt scale = 1.0 (Fast)
-            # Head k: dt scale = 1.5^k (Slow)
-            scale_init = 1.5 ** i
-            val = torch.tensor(scale_init).log() # Initial bias
-            scale_vals.append(val)
-            
-        self.dt_params = nn.Parameter(torch.tensor(scale_vals))
+        # Integrators per head and Time Scaling
+        # Check if "Autonomous Geometric Attention" (Dynamic Time) is enabled
+        self.use_dynamic_time = self.physics_config.get('active_inference', {}).get('dynamic_time', {}).get('enabled', False)
+        
+        if self.use_dynamic_time:
+            # Auto-Wormholes: Model predicts dt per head/step
+            range_min, range_max = self.physics_config['active_inference']['dynamic_time'].get('range', [0.1, 5.0])
+            self.time_heads = nn.ModuleList([
+                TimeDilationHead(self.head_dim, range_min, range_max)
+                for _ in range(heads)
+            ])
+            # We don't use dt_params in this mode
+        else:
+            # Static Wormholes (Multi-Scale Initialization)
+            scale_vals = []
+            for i in range(heads):
+                 # Head 0: dt scale = 1.0 (Fast)
+                # Head k: dt scale = 1.5^k (Slow)
+                scale_init = 1.5 ** i
+                val = torch.tensor(scale_init).log() # Initial bias
+                scale_vals.append(val)
+                
+            self.dt_params = nn.Parameter(torch.tensor(scale_vals))
         
         self.integrators = nn.ModuleList()
         for i in range(heads):
@@ -115,18 +130,36 @@ class MLayer(nn.Module):
             nn.init.eye_(self.out_proj_v.weight)
             nn.init.zeros_(self.out_proj_v.bias)
             
-    def forward(self, x, v, force=None):
+        # Recursive Geodesics: "Copilot" Mixer
+        # Projects previous layer's context (e.g. curvature/gate) into this layer's force
+        self.use_recursive = self.physics_config.get('active_inference', {}).get('recursive_geodesics', {}).get('enabled', False)
+        if self.use_recursive:
+            self.context_proj = nn.Linear(heads, dim) # context is [batch, heads] (gates)
+            nn.init.zeros_(self.context_proj.weight) # Start with no influence
+            
+    def forward(self, x, v, force=None, context=None):
         """
         Args:
             x: Position [batch, dim]
             v: Velocity [batch, dim]
             force: External force [batch, dim]
+            context: Context from previous layer [batch, context_dim]
         Returns:
-            x_next, v_next
+            x_next, v_next, context_next
         """
         # 1. Pre-LayerNorm
         x_norm = self.norm_x(x)
         v_norm = self.norm_v(v)
+        
+        # Apply Recursive Context
+        if self.use_recursive and context is not None:
+             # Context (previous gates) acts as a "correction force"
+             # "Turn here because the last layer struggled"
+             correction = self.context_proj(context)
+             if force is None:
+                 force = correction
+             else:
+                 force = force + correction
         
         # 2. Split into heads
         # [batch, dim] -> list of [batch, head_dim]
@@ -141,19 +174,31 @@ class MLayer(nn.Module):
         # 3. Process each head independently
         x_outs = []
         v_outs = []
+        gate_outputs = [] # Collect gates for next layer's context
         
         for i in range(self.heads):
-            # Dynamic time-step (curvature based)
-            gate = self.gatings[i](x_heads[i])
-            
-            # Integrate with Learnable DT
-            # scale = gate * softplus(dt_param) to ensure positive time
-            dt_effective = nn.functional.softplus(self.dt_params[i]) * gate
-            
-            # Pass effective dt via dt_scale (assuming integrator uses dt * scale)
-            # Since integrator has base dt=0.1, we scale relative to that.
-            # actually let's just pass dt_scale = dt_effective / 0.1
-            scale = dt_effective / 0.1
+            # Dynamic time-step selection
+            if self.use_dynamic_time:
+                # Auto-Wormholes: Predict optimal dt for this thought
+                # scale is roughly [0.1, 5.0]
+                dt_scale = self.time_heads[i](x_heads[i], v_heads[i], f_heads[i])
+                
+                # We still might use gating/softplus?
+                # The head outputs the final scale directly.
+                scale = dt_scale 
+                gate_outputs.append(dt_scale) # Use dt prediction as context
+            else:
+                # Legacy Static Wormholes
+                gate = self.gatings[i](x_heads[i])
+                
+                # Integrate with Learnable DT
+                # scale = gate * softplus(dt_param) to ensure positive time
+                dt_effective = nn.functional.softplus(self.dt_params[i]) * gate
+                
+                # Pass effective dt via dt_scale (assuming integrator uses dt * scale)
+                # Since integrator has base dt=0.1, we scale relative to that.
+                scale = dt_effective / 0.1
+                gate_outputs.append(gate)
             
             x_h, v_h = self.integrators[i](x_heads[i], v_heads[i], force=f_heads[i], dt_scale=scale)
             
@@ -171,7 +216,14 @@ class MLayer(nn.Module):
         else:
             x_geo, v_geo = x_cat, v_cat
             
-        return x_geo, v_geo
+        # Prepare context for next layer
+        # Concatenate gates [batch, heads]
+        if self.heads > 1:
+             context_next = torch.cat(gate_outputs, dim=-1)
+        else:
+             context_next = gate_outputs[0]
+             
+        return x_geo, v_geo, context_next
 
 
 class ParallelMLayer(nn.Module):
@@ -195,7 +247,7 @@ class ParallelMLayer(nn.Module):
         dim: Hidden dimension
         heads: Number of heads
     """
-    def __init__(self, dim, heads=4, **kwargs):
+    def __init__(self, dim, heads=4, physics_config=None, **kwargs):
         super().__init__()
         assert dim % heads == 0
         self.dim = dim
