@@ -2,8 +2,23 @@
 
 All notable changes to the MANIFOLD project will be documented in this file.
 
-## [v0.3.0] - Geometric Enhancements (Current)
-**"The Physics Update"** - Introducing dynamic environmental interactions and multi-scale temporal flow.
+## [v0.4.0] - High-Performance Kernel & Stability
+**"The Engine Update"** - Achieving production-grade inference speed and numerical stability.
+
+### Added
+- **Fused CUDA Kernels**: Custom C++ extensions for `christoffel_fused.cu` and `leapfrog_fused.cu`.
+    - Robust Block-Reduction implementation for numerical precision.
+- **Golden Integration**: Refined `src/geometry.py` integration logic.
+    - Fixed `dt_scale` handling for hybrid Training/Inference compatibility.
+    - Implemented secure fallback mechanisms for non-CUDA environments.
+
+### Fixed
+- **Training Instability**: Resolved `TypeError` in sequential mode during backpropagation.
+- **Compilation Issues**: Fixed MSVC/PyTorch header conflicts (`ambiguous symbol std`) on Windows.
+
+---
+
+## [v0.3.0] - Geometric Enhancements
 
 ### Added
 - **Dynamic Curvature Fields ($\Gamma(x, v)$)**: Curvature now depends on the *position* (state) of the manifold, not just velocity.

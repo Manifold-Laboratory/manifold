@@ -15,9 +15,14 @@
  *   - Expected speedup: 2-3x over PyTorch
  */
 
-#include <torch/extension.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include <vector>
+#include <cmath>
+#include <valarray>
+#include <forward_list>
+
+#include <torch/extension.h>
 
 #define BLOCK_SIZE 256
 #define MAX_RANK 128  // Max rank for shared memory strategy
@@ -32,58 +37,49 @@ __global__ void christoffel_fused_kernel(
     const int dim,
     const int rank
 ) {
-    // Shared memory for U and W tiles
+    // Shared memory for U projection
     __shared__ float s_U[MAX_RANK];
-    __shared__ float s_W[MAX_RANK];
     
-    const int b = blockIdx.x;  // batch index
-    const int d = threadIdx.x; // output dimension index
-    
-    if (b >= batch || d >= dim) return;
-    
-    float result = 0.0f;
-    
-    // Load W[d, :] into shared memory (coalesced)
-    for (int r = 0; r < rank; r++) {
-        if (d == 0 && r < rank) {
-            s_W[r] = W[d * rank + r];
-        }
+    // Initialize to 0
+    if (threadIdx.x < rank) {
+        s_U[threadIdx.x] = 0.0f;
     }
+    
+    // Load v into shared memory for faster reuse? 
+    // Actually v is accessed many times (for each r), so caching v is good.
+    // But dim might be > BLOCK_SIZE. For now assume dim <= BLOCK_SIZE or handle tiling.
+    // Given the constraints, let's just read v from global. L1 cache handles it.
+    
     __syncthreads();
     
-    // Main computation loop over rank dimension
+    const int b = blockIdx.x;  // One block per batch item
+    
+    if (b >= batch) return;
+    
+    // Iterate over ranks
+    // Each thread computes partial dot product for a subset of dimensions
     for (int r = 0; r < rank; r++) {
-        // Compute U^T * v for this rank
-        float proj = 0.0f;
-        
-        // This is the critical inner product: sum_i U[i,r] * v[b,i]
-        // Each thread computes partial sum, then we reduce
+        float partial_sum = 0.0f;
         for (int i = threadIdx.x; i < dim; i += blockDim.x) {
-            proj += U[i * rank + r] * v[b * dim + i];
+            partial_sum += v[b * dim + i] * U[i * rank + r];
         }
         
-        // Warp-level reduction
-        for (int offset = warpSize / 2; offset > 0; offset /= 2) {
-            proj += __shfl_down_sync(0xffffffff, proj, offset);
-        }
-        
-        // First thread in warp now has complete proj for this rank
-        if (threadIdx.x % warpSize == 0) {
-            s_U[r] = proj;
-        }
-        __syncthreads();
-        
-        // Now compute contribution: W[d,r] * proj^2
-        if (d < dim) {
-            float proj_val = s_U[r];
-            result += s_W[r] * proj_val * proj_val;
-        }
+        // Atomic reduction for robustness (perf is fine for low rank/dim)
+        atomicAdd(&s_U[r], partial_sum);
     }
     
-    // Write result with clamping (matches PyTorch version)
-    if (d < dim) {
-        result = fminf(fmaxf(result, -5.0f), 5.0f);
-        gamma[b * dim + d] = result;
+    __syncthreads();
+    
+    // Now compute gamma output elements
+    for (int i = threadIdx.x; i < dim; i += blockDim.x) {
+        float val = 0.0f;
+        for (int r = 0; r < rank; r++) {
+            float proj = s_U[r];
+            val += W[i * rank + r] * proj * proj;
+        }
+        // Clamp result
+        val = fminf(fmaxf(val, -5.0f), 5.0f);
+        gamma[b * dim + i] = val;
     }
 }
 

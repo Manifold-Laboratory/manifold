@@ -13,16 +13,29 @@ try:
     cuda_dir = os.path.dirname(os.path.abspath(__file__))
     
     # Load extension (JIT compilation on first import)
-    gfn_cuda = load(
-        name='gfn_cuda',
-        sources=[
-            os.path.join(cuda_dir, 'cuda_kernels.cpp'),
-            os.path.join(cuda_dir, 'kernels', 'christoffel_fused.cu'),
-            os.path.join(cuda_dir, 'kernels', 'leapfrog_fused.cu'),
-        ],
-        extra_cuda_cflags=['-O3', '--use_fast_math'],
-        verbose=False
-    )
+    # Try loading pre-compiled extension first
+    try:
+        # Implicit relative import for when installed as package
+        from . import gfn_cuda
+    except ImportError:
+        try:
+            # Absolute import
+            import gfn_cuda
+        except ImportError:
+             # Fallback to JIT compilation if pre-compiled not found
+             # (This is useful for development but fragile on Windows)
+             print("[GFN CUDA] Pre-compiled extension not found, attempting JIT compilation...")
+             gfn_cuda = load(
+                name='gfn_cuda',
+                sources=[
+                    os.path.join(cuda_dir, 'cuda_kernels.cpp'),
+                    os.path.join(cuda_dir, 'kernels', 'christoffel_fused.cu'),
+                    os.path.join(cuda_dir, 'kernels', 'leapfrog_fused.cu'),
+                ],
+                extra_cuda_cflags=['-O3', '--use_fast_math'],
+                extra_cflags=['/std:c++17', '/DNOMINMAX', '/DWIN32_LEAN_AND_MEAN', '/permissive-'],
+                verbose=False
+            )
     
     CUDA_AVAILABLE = True
     print("[GFN CUDA] Custom kernels loaded successfully")

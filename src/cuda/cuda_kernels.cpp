@@ -4,6 +4,7 @@
  * PyTorch C++ extension API bindings for GFN kernels.
  */
 
+#include <valarray>
 #include <torch/extension.h>
 
 // Forward declarations

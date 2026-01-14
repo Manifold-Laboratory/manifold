@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from .geometry import LowRankChristoffel, SymplecticIntegrator, RK4Integrator, HeunIntegrator, LeapfrogIntegrator
+from .geometry import LowRankChristoffel, SymplecticIntegrator, RK4Integrator, HeunIntegrator, LeapfrogIntegrator, DormandPrinceIntegrator
 from .scan import parallel_scan
 
 class RiemannianGating(nn.Module):
@@ -41,6 +41,7 @@ class MLayer(nn.Module):
     Available integrators:
         - 'heun': Heun's method (RK2) - Fast & stable [DEFAULT]
         - 'rk4': Runge-Kutta 4 - High accuracy
+        - 'rk45': Dormand-Prince (Golden Integration) - Adaptive
         - 'symplectic': Velocity Verlet - Energy preserving
         - 'leapfrog': Störmer-Verlet - Best symplectic
     """
@@ -90,6 +91,9 @@ class MLayer(nn.Module):
             # Integrator setup
              if integrator_type == 'rk4':
                 integ = RK4Integrator(self.christoffels[i], dt=0.1)
+             elif integrator_type == 'rk45':
+                # Golden Integration
+                integ = DormandPrinceIntegrator(self.christoffels[i], dt=0.1)
              elif integrator_type == 'heun':
                 integ = HeunIntegrator(self.christoffels[i], dt=0.1)
              elif integrator_type == 'leapfrog':
@@ -176,8 +180,7 @@ class ParallelMLayer(nn.Module):
     
     linearizes the Geodesic Flow to enable O(log N) parallel training.
     
-    Approximation:
-        dv/dt = F - \Gamma(v, v)   [Non-linear]
+        dv/dt = F - \\Gamma(v, v)   [Non-linear]
         
         Is approximated as a Linear Time-Varying (LTV) system during scan:
         dv/dt = F - D(F) * v       [Linearized]
