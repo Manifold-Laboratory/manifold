@@ -70,6 +70,9 @@ Manifold demonstrates superior scaling and efficiency compared to Transformers a
 ## Installation
 
 ```bash
+git clone https://github.com/janxhg/MANIFOLD.git
+cd MANIFOLD
+pip install -r requirements.txt
 pip install manifold-ai
 ```
 
