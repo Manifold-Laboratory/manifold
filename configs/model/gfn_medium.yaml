@@ -31,5 +31,9 @@ model:
     symmetries:
       enabled: true
       isomeric_groups: [[0, 1], [2, 3]] # Heads 0-1 and 2-3 share manifolds
+    fractal:
+      enabled: true
+      threshold: 0.5  # Curvature R > 0.5 triggers tunneling
+      alpha: 0.2      # Micro-contribution strength
     stability:
       curvature_clamp: 10.0 # Increased from 5.0 to allow Singularity spikes

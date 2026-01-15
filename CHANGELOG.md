@@ -2,6 +2,19 @@
 
 All notable changes to the MANIFOLD project will be documented in this file.
 
+## [v0.8.0] - Fractal Manifolds (Recursive Intelligence)
+**"The Infinite Resolution Update"** - Multiscale cognitive processing through recursive state-space nesting.
+
+### Core Features
+- **Fractal M-Layer**: Introduced a hierarchical manifold layer that can "tunnel" into high-resolution sub-manifolds.
+- **Recursive Tunneling**: Implemented a dynamic gating mechanism that activates sub-manifold processing when local semantic curvature exceeds a learned threshold.
+- **Multiscale Blending**: Perturbative state updates that blend macro-flow and micro-resolutions for superior semantic precision.
+
+### Verified
+- **Fractal Test Suite**: Passing `tests/unit/test_fractals.py` (Tunneling activation and multiscale blending).
+
+---
+
 ## [v0.7.0] - Semantic Symmetries (Noether)
 **"The Invariance Update"** - Enforcing geometric consistency across semantic contexts.
 

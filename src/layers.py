@@ -375,9 +375,72 @@ class ParallelMLayer(nn.Module):
         # This is another scan! 
         # x_t = 1 * x_{t-1} + (v_t * dt)
         x_update = v_seq * dt
-        # Parallel cumsum is a special case of scan where A=1
-        x_seq = torch.cumsum(x_update, dim=1) 
-        
         # In Parallel mode, we don't return individual head curvatures currently 
         # (needs complex extraction from the scan parameters)
         return x_seq, v_seq, None, []
+
+
+class FractalMLayer(nn.Module):
+    """
+    Fractal Manifold Layer: Implements multiscale "Recursive Tunneling".
+    
+    If local curvature R is high, the particle "tunnels" into a 
+    high-resolution sub-manifold to resolve semantic complexity.
+    """
+    def __init__(self, dim, heads=4, rank=16, base_dt=0.1, integrator_type='heun', physics_config=None):
+        super().__init__()
+        self.dim = dim
+        self.physics_config = physics_config or {}
+        
+        # Macro-manifold: Standard MLayer evolution
+        self.macro_manifold = MLayer(
+            dim, heads=heads, rank=rank, 
+            base_dt=base_dt, integrator_type=integrator_type, 
+            physics_config=self.physics_config
+        )
+        
+        # Sub-manifold: Dedicated to resolving high-curvature details
+        # Smaller rank but higher resolution (smaller dt)
+        micro_cfg = self.physics_config.copy()
+        # Disable fractal recursion in the sub-manifold to avoid infinite loops
+        if 'fractal' not in micro_cfg: micro_cfg['fractal'] = {}
+        micro_cfg['fractal']['enabled'] = False 
+        
+        self.micro_manifold = MLayer(
+            dim, heads=heads, rank=max(8, rank//2), 
+            base_dt=base_dt * 0.5, integrator_type=integrator_type, 
+            physics_config=micro_cfg
+        )
+        
+        fract_cfg = self.physics_config.get('fractal', {})
+        self.threshold = fract_cfg.get('threshold', 0.5)
+        self.alpha_scale = fract_cfg.get('alpha', 0.2)
+        
+    def forward(self, x, v, force=None, context=None):
+        # 1. Macro-evolution (Standard flow)
+        x_m, v_m, ctx_m, christoffels = self.macro_manifold(x, v, force, context)
+        
+        if not self.physics_config.get('fractal', {}).get('enabled', False):
+            return x_m, v_m, ctx_m, christoffels
+            
+        # 2. Estimate average Curvature R from Christoffel magnitudes
+        # Gamma has shape [batch, head_dim]
+        # We stack and take the norm to estimate local complexity
+        stacked_gamma = torch.stack(christoffels, dim=1) # [batch, heads, head_dim]
+        curvature_r = torch.norm(stacked_gamma, dim=-1).mean(dim=-1, keepdim=True) # [batch, 1]
+        
+        # 3. Tunneling condition (Smooth sigmoid gate)
+        # alpha is 0 if curvature is low (flat), rises to 1 when r > threshold
+        tunnel_gate = torch.sigmoid((curvature_r - self.threshold) * 5.0)
+        
+        # 4. Micro-evolution (Zooming in)
+        # We use the macro-updated state as input to the sub-manifold
+        # to refine the results in complex semantic regions.
+        x_f, v_f, _, _ = self.micro_manifold(x_m, v_m, force, context)
+        
+        # 5. Recursive Blending
+        # The micro-manifold provides a perturbative correction to the macro-flow
+        x_final = x_m + tunnel_gate * (x_f - x_m) * self.alpha_scale
+        v_final = v_m + tunnel_gate * (v_f - v_m) * self.alpha_scale
+        
+        return x_final, v_final, ctx_m, christoffels

@@ -51,7 +51,12 @@ class Manifold(nn.Module):
             if use_scan:
                 self.layers.append(ParallelMLayer(dim, heads=heads, physics_config=self.physics_config))
             else:
-                self.layers.append(MLayer(dim, heads=heads, rank=rank, integrator_type=integrator_type, physics_config=self.physics_config))
+                # v0.8.0 Fractal Manifolds
+                if self.physics_config.get('fractal', {}).get('enabled', False):
+                    from .layers import FractalMLayer
+                    self.layers.append(FractalMLayer(dim, heads=heads, rank=rank, integrator_type=integrator_type, physics_config=self.physics_config))
+                else:
+                    self.layers.append(MLayer(dim, heads=heads, rank=rank, integrator_type=integrator_type, physics_config=self.physics_config))
         
         # Output projection
         self.readout_norm = nn.LayerNorm(dim)
