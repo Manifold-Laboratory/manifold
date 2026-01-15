@@ -18,6 +18,8 @@ training:
   learning_rate: 1.0e-3  # Perfect balance for stability/speed with RiemannianAdam
   weight_decay: 0.1
   max_grad_norm: 1.0
+  lambda_h: 0.01         # Hamiltonian Energy Conservation
+  lambda_c: 0.05         # Entropy-Driven Curiosity
 
   epochs: 1000             # Increased epochs for full convergence
   steps_per_epoch: 1000

@@ -1,16 +1,15 @@
-# GFN Architecture
+# Manifold Architecture
 
-> Deep dive into the Geodesic Flow Network architecture.
+> Deep dive into the Geometric Intelligence architecture.
 
 ---
 
 ## Core Concept
 
-GFN models sequences as **geodesic flows on a Riemannian manifold**.
+Manifold models sequences as **geodesic flows on a Riemannian manifold**.
 
 ```
-Traditional: Token → Attention → Token
-GFN:         Token → Force → Geodesic Flow → Position → Token
+Input:       Token → Force → Geodesic Flow → Position → Token
 Training:    Input(Force) → Parallel Associative Scan → State Sequence (O(log N))
 Inference:   Token → Sequential Geodesic Flow → State (O(1) Step)
 ```
@@ -32,13 +31,13 @@ Where:
 
 ---
 
-## Architecture Diagram (GFN V2)
+## Architecture Design
  
  ```mermaid
  graph TD
      Force[Token Force] -->|Split| Heads
      
-     subgraph Multi-Head GLayer
+     subgraph Multi-Head Layer
          direction LR
          Head1[Head 1: Subspace Flow]
          Head2[Head 2: Subspace Flow]
@@ -58,31 +57,28 @@ Where:
      Norm --> Next[Next Layer]
  ```
  
- ### Multi-Head Geodesic Flows (The "V2" Breakthrough)
+ ### Multi-Head Geodesic Flows
  
- Just as Transformers use Multi-Head Attention to attend to different subspaces, GFN V2 computes **parallel geodesic flows** on independent Riemannian sub-manifolds.
+ Corresponding to attention subspaces in transformers, Manifold computes **parallel geodesic flows** on independent Riemannian sub-manifolds.
  
- - **Why?** A single manifold often forces all dynamics to share the same curvature.
- - **GFN V2:** Splitting `dim` into `K` heads allows the model to learn `K` distinct geometries simultaneously (e.g., one head for arithmetic, one for syntax).
+ - **Parallelism:** Splitting `dim` into `K` heads allows the model to learn `K` distinct geometries simultaneously (e.g., syntax vs. semantics).
  
  ### Pre-LayerNorm Design
  
- Consistent with modern LLM practices (GPT-2/3, Llama), GFN V2 applies LayerNormalization **before** the geodesic evolution. This ensures stable gradients in deep networks (12+ layers).
+ Consistent with modern large-scale practices, Manifold applies LayerNormalization **before** the geodesic evolution to ensure numerical stability and gradient health in deep networks.
  
  ```python
- # GFN V2 Block
  x_norm, v_norm = ln(x), ln(v)
  x_heads = split(x_norm)
  # ... integrate ...
 x_out = proj(concat(x_heads))
 ```
 
-### Parallel Associative Scan (Training Mode)
+### Parallel Associative Scan
 
-To enable massive parallel training on GPUs, MANIFOLD switches to a "Linearized Geodesic Flow" mode.
+To enable massive parallel training on GPUs, Manifold utilizes a "Linearized Geodesic Flow" mode.
 - **Linearization**: The network predicts $A_t$ (decay/rotation) and $B_t$ (input modulation) for all timesteps in parallel.
-- **Scan**: A recursive doubling algorithm computes the prefix sum of states.
-- **Result**: Training time is reduced from $O(L)$ sequential steps to $O(\log L)$ parallel steps, enabling >200x speedups on long sequences.
+- **Scan**: A recursive doubling algorithm computes the prefix sum of states in $O(\log N)$ time.
  ```
 
 ---
@@ -93,34 +89,30 @@ To enable massive parallel training on GPUs, MANIFOLD switches to a "Linearized 
 |-------|------|--------|---------|
 | Transformer | O(N²) | O(N²) | Limited by attention |
 | Mamba/SSM | O(N) | O(1) | Linear compression |
-| **MANIFOLD** | **O(log N)** (Train) / O(N) (Scan) | **O(1)** | Geodesic memory |
+| **Manifold** | **O(log N)** | **O(1)** | Geodesic memory |
 
-**Parallel Training (The Scan Breakthrough):**
-By approximating the non-linear geodesic flow as a Linear Time-Varying (LTV) system during training: 
-$v_t = A_t v_{t-1} + B_t$
-We can use a **Parallel Associative Scan** (Hillis-Steele algorithm) to compute the entire sequence in $O(\log N)$ parallel depth. This aligns MANIFOLD with state-of-the-art SSMs like Mamba in terms of training efficiency.
-
-GFN achieves O(1) memory because:
-- No attention matrix stored
-- State (x, v) is fixed-size regardless of sequence length
-- Information encoded in trajectory, not explicit memory
+Manifold achieves O(1) memory by encoding information in the continuous trajectory of the state (x, v) rather than storing an explicit memory matrix.
 
 ---
 
-## Geometric Enhancements (Experimental)
+## Cognitive Physics Features
 
-### Dynamic Curvature Fields ($\Gamma(x, v)$)
-Traditional GFN assumes curvature $\Gamma(v)$ depends only on direction. **Dynamic Curvature** introduces position-dependence:
+### Dynamic Curvature Fields
+Information transport is governed by position-dependent curvature:
 $$\Gamma(v, x) = \Gamma_{static}(v, v) \cdot (1 + \sigma(V \cdot x))$$
-This creates **Gravity Wells** where specific concepts (positions on the manifold) naturally curve the space, altering trajectories that pass near them (implicit attention).
+This creates **attractors** where specific semantic concepts warp the geometry, modulating the flow of information through the network.
 
-### Manifold Wormholes (Multi-Scale Time)
-To effect "Isomeric Transport" across long distances (skipping tokens), MANIFOLD uses **Multi-Scale Heads**.
-- **Head 0**: Base $dt$ (Fast flow, handles syntax/local)
-- **Head k**: $dt_k = c^k \cdot dt_0$ (Slow flow, semantic transport)
+### Manifold Wormholes
+To enable long-range transport, Manifold utilizes **Multi-Scale Heads**.
+- **Fast Heads**: Handle local syntactic structures.
+- **Slow Heads**: Transport semantic information across long temporal distances in a single effective integration step.
 
-This implements "Wormholes" in the causal graph, allowing information to propagate from $t$ to $t+N$ in a single effective step on the slow manifold, preserving $O(1)$ memory.
+### Entropy-Driven Curiosity
+The training action incorporates a thermodynamic regularization term:
+$$ L = L_{task} - T \cdot S(\dot{x}) $$
+By maximizing the differential entropy ($S$) of the flow, the model is physically encouraged to explore diverse cognitive trajectories, preventing representation collapse.
 
+---
 
 ## Component Details
 
@@ -190,12 +182,17 @@ Example (gfn_medium):
 
 ## Training Dynamics
 
-1. **Token arrives** → Force applied to manifold
-2. **State evolves** → Geodesic flow through layers
-3. **Readout** → Position decoded to prediction
-4. **Loss computed** → CE + Hamiltonian regularization
-5. **Gradients flow** → Through Riemannian optimizer
+1.  **Token arrives** → Force applied to manifold
+2.  **State evolves** → Geodesic flow through layers
+3.  **Readout** → Position decoded to prediction
+4.  **Loss computed** → CE + Hamiltonian regularization
+5.  **Gradients flow** → Through Riemannian optimizer
 
 The key insight: **Reasoning = Trajectory on Manifold**
 
-Complex patterns emerge from simple geodesic dynamics.
+---
+
+<div align="center">
+  <b>Manifold Research Series</b><br>
+  Reasoning = Trajectory. Exploration = Entropy.
+</div>

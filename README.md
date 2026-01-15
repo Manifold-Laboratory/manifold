@@ -5,7 +5,6 @@
 
 **Geometric Intelligence for Sequence Modeling**
 
-[![Release](https://img.shields.io/badge/release-v0.5.0-blue.svg)](https://github.com/janxhg/MANIFOLD/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
 [![Physics](https://img.shields.io/badge/physics-Symplectic-purple.svg)](docs/PHYSICS.md)
 [![Documentation](https://img.shields.io/badge/docs-latest-orange.svg)](docs/API.md)
@@ -24,6 +23,7 @@ Unlike Transformers which rely on O(N²) attention mechanisms, Manifold leverage
 
 - **Infinite Context**: Process sequences of arbitrary length with constant memory ($O(1)$) using the Adjoint State Method.
 - **Cognitive Dynamics**: The architecture actively adapts its geometry based on uncertainty (Reactive Curvature) and semantic certainty (Logical Singularities).
+- **Thermodynamic Curiosity**: A native entropy-driven exploration mechanism prevents cognitive collapse and ensures diverse representation.
 - **Physical Guarantees**: Symplectic integration ensures long-term stability and reversibility without ad-hoc normalization hacks.
 - **Massive Parallelism**: Linearized Geodesic Scan enables $O(\log N)$ parallel training, matching the speed of state-of-the-art SSMs.
 
@@ -38,7 +38,8 @@ Manifold transcends static deep learning by incorporating dynamic "cognitive phy
 | **Reactive Curvature** | $\Gamma(v) \propto \tanh(\|E\|)$ | **Plasticity**: High uncertainty forces deeper processing (slower flow). |
 | **Logical Singularities** | $g_{\mu\nu} \to \infty$ | **Certainty**: Strong semantic signals create gravity wells (attractors). |
 | **Auto-Wormholes** | $\int dt \cdot \sigma(x)$ | **Attention**: Dynamic time-dilation skips irrelevant information. |
-| **Recursive Geodesics** | $F_t = F_{ext} + \mathcal{P}(\Gamma_{t-1})$ | **Metacognition**: Layers effectively "steer" subsequent layers. |
+| **Metacognition** | $F_t = F_{ext} + \mathcal{P}(\Gamma_{t-1})$ | **Control**: Hierarchical steering of subsequent geodesic paths. |
+| **Curiosity** | $L \to L - T \cdot S$ | **Exploration**: Thermodynamic pressure forces the model to stay diverse. |
 
 ---
 
@@ -55,10 +56,10 @@ Manifold demonstrates superior scaling and efficiency compared to Transformers a
 | **Manifold** | **0.1 GB** | **0.1 GB** | **0.1 GB** |
 
 ### Throughput
-*Fused CUDA kernels provide 5-10x inference speedup.*
+*Fused CUDA kernels provide significant acceleration for low-latency inference.*
 
-- **Training**: 1200 tokens/sec (A100)
-- **Inference**: 4500 tokens/sec (Fused Kernel)
+- **Training**: Optimization via Parallel Associative Scan (O(log N))
+- **Inference**: High-speed trajectory integration with fused kernels.
 
 ---
 

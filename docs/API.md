@@ -99,8 +99,11 @@ Entropic and Hamiltonian loss functions for physical regularization.
 ```python
 from src import GFNLoss
 
-loss_fn = GFNLoss(lambda_h=0.01) # lambda_h controls energy conservation weight
+loss_fn = GFNLoss(
+    lambda_h=0.01, # Hamiltonian energy conservation
+    lambda_c=0.05  # Curiosity temperature (Thermodynamics)
+)
 ```
 
 ---
-*Manifold Framework v0.5*
+*Manifold Framework Technical Reference*

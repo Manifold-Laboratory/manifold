@@ -168,9 +168,10 @@ def train(model_cfg: dict, train_cfg: dict, hw_cfg: dict):
         max_norm=10.0
     )
     
-    # Loss: GFNLoss with Hamiltonian regularization
+    # Loss: GFNLoss with Hamiltonian regularization & Curiosity
     criterion = GFNLoss(
         lambda_h=train_params.get('lambda_h', 0.01),  # Hamiltonian energy conservation weight
+        lambda_c=train_params.get('lambda_c', 0.0),   # Entropy-Driven Curiosity (Thermodynamics)
         ignore_index=dataset.char_to_id['<PAD>']
     )
     

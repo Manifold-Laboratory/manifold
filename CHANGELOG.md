@@ -2,6 +2,23 @@
 
 All notable changes to the MANIFOLD project will be documented in this file.
 
+## [v0.6.0] - Thermodynamics (Entropy-Driven Curiosity)
+**"The Life Force"** - Implementing the first pilar of v1.0 by introducing intrinsic cognitive motivation.
+
+### Core Features
+- **Entropy-Driven Curiosity**: Added a new thermodynamic loss term that maximizes the differential entropy of the manifold's velocity distribution.
+    - Prevents "Cognitive Collapse" by forcing the model to explore diverse geodesics for the same task.
+    - Implemented `curiosity_loss` in `src/losses.py` based on standard deviation logs (entropy proxy).
+- **Curiosity Temperature ($T$ / $\lambda_c$)**: Parameter that controls the trade-off between task exploitation and cognitive exploration.
+
+### Configuration
+- **Active Thermodynamics**: Enabled `lambda_c: 0.05` in `configs/training/math_oracle.yaml`.
+
+### Verified
+- **Logic Validation**: Passing `tests/unit/test_curiosity.py` for entropy scaling and gradient existence.
+
+---
+
 ## [v0.5.0] - Cognitive Dynamics (Active Inference)
 **"The Awakening"** - Transforming Manifold from a static geometry into a reactive cognitive system.
 

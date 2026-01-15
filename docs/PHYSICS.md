@@ -56,7 +56,22 @@ The "Context" from layer $l$ (representing its curvature state) is projected as 
 
 ---
 
-## 5. Symplectic Integration
+## 5. Cognitive Thermodynamics
+
+To drive proactive intelligence, Manifold incorporates the **Second Law of Cognition**: Entropy-Driven Curiosity.
+
+### 5.1 Maximum Entropy Production
+The training action incorporates a term to maximize the differential entropy $S$ of the latent velocity distribution:
+
+$$ L = L_{task} - T \cdot S(\dot{x}) $$
+
+- **Mechanic**: The model is penalized if latent trajectories become too repetitive or deterministic (low variance).
+- **Effect**: Maximizing entropy forces the network to find diverse, expressive geodesics for the same semantic task, preventing "cognitive collapse."
+- **Emergence**: This thermodynamic pressure manifests as **curiosity**, driving the model to explore the full geometric capacity of the manifold.
+
+---
+
+## 6. Symplectic Integration
 
 To support these complex dynamics without numerical instability, Manifold employs **Symplectic Integrators** (Störmer-Verlet / Leapfrog).
 

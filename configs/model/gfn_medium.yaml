@@ -11,7 +11,7 @@ model:
   use_scan: false
   use_adjoint: false
 
-  # Physics Configuration (v0.5 Active Inference)
+  # Physics Configuration (Active Inference)
   physics:
     active_inference:
       enabled: true
