@@ -205,13 +205,6 @@ class GFNLoss(nn.Module):
             
         # Noether (Semantic Symmetries)
         if self.lambda_n > 0 and christoffel_outputs:
-            # We need to know which heads are symmetric. 
-            # For simplicity, we can assume a default grouping or pass it via config.
-            # Here we'll need to know the 'isomeric_groups' from the model.
-            # This requires passing it to forward or storing it in the loss module.
-            pass # We'll update forward to accept isomeric_groups
-        
-        if self.lambda_n > 0 and christoffel_outputs:
             n_loss = noether_loss(christoffel_outputs, isomeric_groups=isomeric_groups, lambda_n=self.lambda_n)
             total = total + n_loss
             loss_dict["noether"] = n_loss.item()

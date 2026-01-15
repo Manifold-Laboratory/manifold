@@ -24,6 +24,8 @@ Unlike Transformers which rely on O(N²) attention mechanisms, Manifold leverage
 - **Infinite Context**: Process sequences of arbitrary length with constant memory ($O(1)$) using the Adjoint State Method.
 - **Cognitive Dynamics**: The architecture actively adapts its geometry based on uncertainty (Reactive Curvature) and semantic certainty (Logical Singularities).
 - **Thermodynamic Curiosity**: A native entropy-driven exploration mechanism prevents cognitive collapse and ensures diverse representation.
+- **Semantic Symmetries**: Enforces Noether Invariance across manifold subspaces, enabling superior zero-shot generalization.
+- **Fractal Intelligence**: Recursive state-space nesting allows the model to adaptively scale its resolution based on complexity.
 - **Physical Guarantees**: Symplectic integration ensures long-term stability and reversibility without ad-hoc normalization hacks.
 - **Massive Parallelism**: Linearized Geodesic Scan enables $O(\log N)$ parallel training, matching the speed of state-of-the-art SSMs.
 
@@ -40,6 +42,8 @@ Manifold transcends static deep learning by incorporating dynamic "cognitive phy
 | **Auto-Wormholes** | $\int dt \cdot \sigma(x)$ | **Attention**: Dynamic time-dilation skips irrelevant information. |
 | **Metacognition** | $F_t = F_{ext} + \mathcal{P}(\Gamma_{t-1})$ | **Control**: Hierarchical steering of subsequent geodesic paths. |
 | **Curiosity** | $L \to L - T \cdot S$ | **Exploration**: Thermodynamic pressure forces the model to stay diverse. |
+| **Symmetries** | $G(T_g x) = G(x)$ | **Invariance**: Geometric laws are consistent across semantic contexts (Noether). |
+| **Fractals** | $M \cong M \times M_{sub}$ | **Recursion**: Recursive tunneling resolves complexity at multiple scales. |
 
 ---
 

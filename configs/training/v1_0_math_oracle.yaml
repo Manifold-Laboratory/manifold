@@ -1,0 +1,33 @@
+# Unified Training Configuration for Manifold v1.0
+# Optimized for balanced physics-informed learning
+
+training:
+  dataset: "math"
+  dataset_size: 10_000_000
+  max_digits: 8
+  seq_len: 128
+
+  # Unified Physics Weights
+  learning_rate: 1.0e-4  # Slightly lower for unified stability
+  weight_decay: 0.1
+  max_grad_norm: 1.0
+  
+  lambda_h: 0.05         # Hamiltonian Conservation
+  lambda_g: 0.005        # Geodesic Regularization
+  lambda_c: 0.02         # Thermodynamic Curiosity
+  lambda_n: 0.01         # Semantic Symmetries
+  
+  batch_size: 2048
+  accumulation_steps: 4
+  effective_batch: 8192
+  
+  epochs: 2000
+  steps_per_epoch: 1000
+  log_interval: 10
+  
+  use_amp: true
+  compile: false
+
+checkpoint:
+  save_interval: 1
+  path: "checkpoints/v1_0_math_oracle"

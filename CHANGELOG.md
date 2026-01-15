@@ -2,6 +2,22 @@
 
 All notable changes to the MANIFOLD project will be documented in this file.
 
+## [v1.0.0] - The Conscious Engine (Unified Release)
+**"The Singularity Milestone"** - Full integration of Thermodynamics, Semantic Symmetries, and Fractal Manifolds.
+
+### Features
+- **Unified Cognitive Suite**: Seamless integration of all three physical pillars (Curiosity, Noether Symmetries, Recursive Fractals).
+- **Golden Config**: Introduced `configs/model/gfn_v1_0.yaml` as the reference standard for high-performance geometric intelligence.
+- **Pristine Core**: Finalized technical audit and cleanup of `GFNLoss` and `FractalMLayer` for production stability.
+- **Verified Integration**: Comprehensive suite of unified tests ensuring gradient flow across all modules.
+
+### Pillars
+- **Thermodynamics**: Entropy-Driven Curiosity for autonomous exploration.
+- **Symmetries**: Isomeric Heads for semantic consistency and invariance.
+- **Fractals**: Recursive Tunneling for adaptive multiscale resolution.
+
+---
+
 ## [v0.8.0] - Fractal Manifolds (Recursive Intelligence)
 **"The Infinite Resolution Update"** - Multiscale cognitive processing through recursive state-space nesting.
 
