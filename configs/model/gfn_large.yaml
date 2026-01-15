@@ -7,8 +7,35 @@ model:
   depth: 24
   rank: 256
   heads: 16   # Multi-Head Manifold
-  integrator: "leapfrog"
-  use_scan: true
-  use_adjoint: false  # Disabled for Speed
+  integrator_type: "heun"
+  use_scan: false
+  
+  # Cognitive Physics Suite (v1.0)
+  physics:
+    active_inference:
+      enabled: true
+      reactive_curvature:
+        enabled: true
+        plasticity: 0.2 # Higher plasticity for larger capacity
+      singularities:
+        enabled: true
+        threshold: 0.8
+        strength: 10.0
+      dynamic_time:
+        enabled: true
+        range: [0.05, 10.0] # Wider attention range for deep reasoning
+    
+    symmetries:
+      enabled: true
+      # Consistent invariance across 16 heads
+      isomeric_groups: [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9], [10, 11], [12, 13], [14, 15]]
+    
+    fractal:
+      enabled: true
+      threshold: 0.3 # Easier tunneling for complex large-scale patterns
+      alpha: 0.3     # Stronger micro-refinement
+    
+    stability:
+      curvature_clamp: 20.0 # High tolerance for singularities
 
 # Computed: ~56M parameters

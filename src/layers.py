@@ -87,11 +87,6 @@ class MLayer(nn.Module):
         for i in range(heads):
             self.christoffels.append(christoffel_map[i])
         
-        # Gating per head
-        self.gatings = nn.ModuleList([
-            RiemannianGating(self.head_dim) for _ in range(heads)
-        ])
-        
         # Integrators per head and Time Scaling
         # Check if "Autonomous Geometric Attention" (Dynamic Time) is enabled
         self.use_dynamic_time = self.physics_config.get('active_inference', {}).get('dynamic_time', {}).get('enabled', False)
@@ -103,8 +98,14 @@ class MLayer(nn.Module):
                 TimeDilationHead(self.head_dim, range_min, range_max)
                 for _ in range(heads)
             ])
+            self.gatings = None
             # We don't use dt_params in this mode
         else:
+            # Gating per head (Legacy Static Wormholes)
+            self.gatings = nn.ModuleList([
+                RiemannianGating(self.head_dim) for _ in range(heads)
+            ])
+            
             # Static Wormholes (Multi-Scale Initialization)
             scale_vals = []
             for i in range(heads):
@@ -115,6 +116,7 @@ class MLayer(nn.Module):
                 scale_vals.append(val)
                 
             self.dt_params = nn.Parameter(torch.tensor(scale_vals))
+            self.time_heads = None
         
         self.integrators = nn.ModuleList()
         for i in range(heads):

@@ -7,8 +7,27 @@ model:
   depth: 6
   rank: 64
   heads: 4
-  integrator: "leapfrog"
-  use_scan: true
-  use_adjoint: false
+  integrator_type: "heun"
+  use_scan: false
+
+  # Cognitive Physics Suite (v1.0)
+  physics:
+    active_inference:
+      enabled: true
+      reactive_curvature: { plasticity: 0.1 }
+      singularities: { enabled: true, threshold: 0.9 }
+      dynamic_time: { enabled: true, range: [0.1, 5.0] }
+    
+    symmetries:
+      enabled: true
+      isomeric_groups: [[0, 1], [2, 3]] # Symmetric pairs for 4 heads
+    
+    fractal:
+      enabled: true
+      threshold: 0.5
+      alpha: 0.2
+    
+    stability:
+      curvature_clamp: 10.0
 
 # Computed: ~2M parameters
