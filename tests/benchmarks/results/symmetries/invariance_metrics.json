@@ -1,0 +1,22 @@
+{
+    "analysis_type": "Noether Invariance (Semantic Symmetry)",
+    "invariance_gaps": [
+        {
+            "pair": "2 + 3 = 5 <-> 3 + 2 = 5",
+            "euclidean_distance": 1460.827880859375
+        },
+        {
+            "pair": "1 + 1 = 2 <-> 1 + 1 = 2",
+            "euclidean_distance": 447.4150085449219
+        },
+        {
+            "pair": "4 * 2 = 8 <-> 2 * 4 = 8",
+            "euclidean_distance": 495.40521240234375
+        },
+        {
+            "pair": "9 - 5 = 4 <-> 9 - 5 = 4",
+            "euclidean_distance": 0.0
+        }
+    ],
+    "peak_vram_mb": 25.8447265625
+}

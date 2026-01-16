@@ -38,10 +38,14 @@ checkpoints/**/*.pth
 !checkpoints/**/train.txt
 
 # Results
-results/
-tests/professional/results/*.png
-tests/professional/results/*.pdf
-tests/professional/results/*.csv
+# results/
+# tests/professional/results/*.png
+# tests/professional/results/*.pdf
+# tests/professional/results/*.csv
+
+# Explicitly allow benchmark results (images, json, html)
+!tests/benchmarks/results/
+!tests/benchmarks/results/**/*
 
 # Virtual Environments
 venv/

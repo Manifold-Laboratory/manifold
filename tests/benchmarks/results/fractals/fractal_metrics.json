@@ -1,0 +1,8 @@
+{
+    "analysis_type": "Fractal Recursive Zoom",
+    "macro_mean_curvature": 5.885073067132818e-07,
+    "micro_mean_curvature": 2.857736225262168e-09,
+    "max_micro_complexity": 7.434637794290211e-09,
+    "zoom_factor": 20.0,
+    "peak_vram_mb": 0.78173828125
+}

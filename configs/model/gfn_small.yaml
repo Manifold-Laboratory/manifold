@@ -1,33 +1,63 @@
-# GFN Small Model Configuration (2M Parameters)
-# Optimized for GTX 1650 / Low VRAM
-
+# Small GFN Model Configuration
+# Optimized for rapid testing and CPU inference
+# Estimated Params: ~0.5M
 model:
-  vocab_size: 16
+  # --- Architecture ---
+  vocab_size: 16       # Math Oracle vocabulary (0-9, operators)
   dim: 256
   depth: 6
-  rank: 64
-  heads: 4
-  integrator_type: "heun"
-  use_scan: false
+  rank: 16            # Low-Rank Christoffel approximation
+  heads: 4            # Multi-Head Manifold
+  integrator: "heun"  # 'heun' (Fast), 'rk4', 'rk45' (Golden), 'leapfrog' (Symplectic)
+  use_scan: false     # Parallel Training (requires accurate linearization)
+  use_adjoint: false  # Memory optimization O(1)
 
-  # Cognitive Physics Suite (v1.0)
+  # --- Cognitive Physics (Internal Dynamics) ---
+  # Controls the "physics" of the latent manifold.
   physics:
+    
+    # v0.5: Active Inference (The "Alive" Update)
     active_inference:
-      enabled: true
-      reactive_curvature: { plasticity: 0.1 }
-      singularities: { enabled: true, threshold: 0.9 }
-      dynamic_time: { enabled: true, range: [0.1, 5.0] }
-    
-    symmetries:
-      enabled: true
-      isomeric_groups: [[0, 1], [2, 3]] # Symmetric pairs for 4 heads
-    
-    fractal:
-      enabled: true
-      threshold: 0.5
-      alpha: 0.2
-    
-    stability:
-      curvature_clamp: 10.0
+      enabled: false  # Enable dynamic feedback loops
+      
+      # 1. Reactive Curvature (Plasticity)
+      # Manifold geometry adapts to the "force" of thoughts passing through it.
+      reactive_curvature:
+        enabled: false
+        plasticity: 0.1  # How much geometry deforms (0.0 = Static, >0.0 = Plastic)
+        decay: 0.99      # Elastic return to baseline (1.0 = Permanent, <1.0 = Fading)
 
-# Computed: ~2M parameters
+      # 2. Logical Singularities (Black Holes)
+      # High-mass semantic concepts create gravity wells that trap/focus attention.
+      singularities:
+        enabled: false
+        strength: 10.0   # Gravity magnitude
+        threshold: 0.8   # Semantic density required to trigger event horizon
+
+      # 3. Recursive Geodesics
+      # Feedback from previous layers guides the current flow ("Hindsight").
+      recursive_geodesics:
+        enabled: false
+
+      # 4. Dynamic Time (Autonomous Geometric Attention / "Wormholes")
+      # Model locally dilates/contracts time to resolve complexity.
+      dynamic_time:
+        enabled: false
+        range: [0.1, 5.0] # [Min dt, Max dt] (Low = Detail, High = Skip)
+
+    # v0.7: Semantic Symmetries (Noether's Theorem)
+    # Enforces geometric invariance across "Isomeric" heads.
+    symmetries:
+      enabled: false
+      isomeric_groups: [] # e.g. [[0, 1], [2, 3]] -> Heads 0&1 share geometry
+
+    # v0.8: Fractal Manifolds (Recursive Intelligence)
+    # "Zoom in" capability: High curvature triggers sub-manifold traversal.
+    fractal:
+      enabled: false
+      threshold: 0.5   # Curvature 'R' triggering tunnel
+      alpha: 0.2       # Blending factor of micro-manifold result
+
+    # Stability Controls
+    stability:
+      curvature_clamp: 5.0  # Prevents exploding gradients in high-curvature regions

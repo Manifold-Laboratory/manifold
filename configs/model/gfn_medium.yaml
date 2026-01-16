@@ -2,38 +2,62 @@
 # Balanced for GTX 1650 (4GB VRAM)
 # Estimated Params: ~4M
 model:
+  # --- Architecture ---
   vocab_size: 16
   dim: 512
   depth: 12
-  rank: 64
-  heads: 8    # Multi-Head Manifold
-  integrator: "leapfrog"
+  rank: 64            # Higher rank for richer geometry
+  heads: 8            # Multi-Head Manifold
+  integrator: "leapfrog" # Symplectic Stability preferred
   use_scan: false
   use_adjoint: false
 
-  # Physics Configuration (Active Inference)
+  # --- Cognitive Physics (Internal Dynamics) ---
+  # Controls the "physics" of the latent manifold.
   physics:
+    
+    # v0.5: Active Inference (The "Alive" Update)
     active_inference:
-      enabled: true
+      enabled: true   # Medium model is "Alive"
+      
+      # 1. Reactive Curvature (Plasticity)
+      # Manifold geometry adapts to the "force" of thoughts passing through it.
       reactive_curvature:
         enabled: true
-        plasticity: 0.1
-        decay: 0.95
+        plasticity: 0.1  # Moderate adaptation
+        decay: 0.95      # Slightly slower decay
+
+      # 2. Logical Singularities (Black Holes)
+      # High-mass semantic concepts create gravity wells that trap/focus attention.
       singularities:
         enabled: true
         strength: 10.0
         threshold: 0.8
+
+      # 3. Recursive Geodesics
+      # Feedback from previous layers guides the current flow ("Hindsight").
       recursive_geodesics:
         enabled: false
+
+      # 4. Dynamic Time (Autonomous Geometric Attention / "Wormholes")
+      # Model locally dilates/contracts time to resolve complexity.
       dynamic_time:
         enabled: true
         range: [0.1, 5.0]
+
+    # v0.7: Semantic Symmetries (Noether's Theorem)
+    # Enforces geometric invariance across "Isomeric" heads.
     symmetries:
       enabled: true
       isomeric_groups: [[0, 1], [2, 3]] # Heads 0-1 and 2-3 share manifolds
+
+    # v0.8: Fractal Manifolds (Recursive Intelligence)
+    # "Zoom in" capability: High curvature triggers sub-manifold traversal.
     fractal:
       enabled: true
-      threshold: 0.5  # Curvature R > 0.5 triggers tunneling
-      alpha: 0.2      # Micro-contribution strength
+      threshold: 0.5
+      alpha: 0.2
+
+    # Stability Controls
     stability:
       curvature_clamp: 10.0 # Increased from 5.0 to allow Singularity spikes

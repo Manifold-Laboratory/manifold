@@ -1,41 +1,65 @@
-# GFN Large Model Configuration (50M+ Parameters)
-# For benchmarking and scaling experiments
-
+# Large GFN Model Configuration
+# High-Capacity "Conscious Engine"
+# Requires 16GB+ VRAM or Mixed Precision
+# Estimated Params: ~25M+
 model:
+  # --- Architecture ---
   vocab_size: 16
   dim: 1024
   depth: 24
-  rank: 256
-  heads: 16   # Multi-Head Manifold
-  integrator_type: "heun"
+  rank: 64            # Efficient Rank
+  heads: 16           # Massive parallel processing
+  integrator: "rk45"  # Adaptive Golden Integration preferred for capacity
   use_scan: false
-  
-  # Cognitive Physics Suite (v1.0)
-  physics:
-    active_inference:
-      enabled: true
-      reactive_curvature:
-        enabled: true
-        plasticity: 0.2 # Higher plasticity for larger capacity
-      singularities:
-        enabled: true
-        threshold: 0.8
-        strength: 10.0
-      dynamic_time:
-        enabled: true
-        range: [0.05, 10.0] # Wider attention range for deep reasoning
-    
-    symmetries:
-      enabled: true
-      # Consistent invariance across 16 heads
-      isomeric_groups: [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9], [10, 11], [12, 13], [14, 15]]
-    
-    fractal:
-      enabled: true
-      threshold: 0.3 # Easier tunneling for complex large-scale patterns
-      alpha: 0.3     # Stronger micro-refinement
-    
-    stability:
-      curvature_clamp: 20.0 # High tolerance for singularities
+  use_adjoint: true   # REQUIRED for memory efficiency at this depth
 
-# Computed: ~56M parameters
+  # --- Cognitive Physics (Internal Dynamics) ---
+  # Controls the "physics" of the latent manifold.
+  physics:
+    
+    # v0.5: Active Inference (The "Alive" Update)
+    active_inference:
+      enabled: false  # Default to Static for speed, enable for "Awareness"
+      
+      # 1. Reactive Curvature (Plasticity)
+      # Manifold geometry adapts to the "force" of thoughts passing through it.
+      reactive_curvature:
+        enabled: false
+        plasticity: 0.1
+        decay: 0.99
+
+      # 2. Logical Singularities (Black Holes)
+      # High-mass semantic concepts create gravity wells that trap/focus attention.
+      singularities:
+        enabled: false
+        strength: 20.0   # Stronger gravity for larger dim
+        threshold: 0.85
+
+      # 3. Recursive Geodesics
+      # Feedback from previous layers guides the current flow ("Hindsight").
+      recursive_geodesics:
+        enabled: false
+
+      # 4. Dynamic Time (Autonomous Geometric Attention / "Wormholes")
+      # Model locally dilates/contracts time to resolve complexity.
+      dynamic_time:
+        enabled: false
+        range: [0.05, 10.0] # Wider range for deep network
+
+    # v0.7: Semantic Symmetries (Noether's Theorem)
+    # Enforces geometric invariance across "Isomeric" heads.
+    # For 16 heads: 8 pairs or 4 quads
+    symmetries:
+      enabled: false
+      isomeric_groups: [[0, 1], [2, 3], [4, 5], [6, 7]] 
+
+    # v0.8: Fractal Manifolds (Recursive Intelligence)
+    # "Zoom in" capability: High curvature triggers sub-manifold traversal.
+    fractal:
+      enabled: false
+      threshold: 0.6   # Higher threshold to avoid excessive computation
+      alpha: 0.2
+
+    # Stability Controls
+    stability:
+      curvature_clamp: 10.0

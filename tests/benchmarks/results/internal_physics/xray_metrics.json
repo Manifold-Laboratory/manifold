@@ -1,0 +1,96 @@
+{
+    "input_text": "999 * 10 = 9990",
+    "peak_vram_mb": 36.4130859375,
+    "token_analysis": [
+        {
+            "token": "9",
+            "curvature": 1.8916756125975098e-05,
+            "energy": 50.106137911478676,
+            "fractal_activity": 0.0
+        },
+        {
+            "token": "9",
+            "curvature": 1.9571642378461245e-05,
+            "energy": 50.46787961324056,
+            "fractal_activity": 0.0
+        },
+        {
+            "token": "9",
+            "curvature": 1.9058668992026167e-05,
+            "energy": 51.92088222503662,
+            "fractal_activity": 0.0
+        },
+        {
+            "token": " ",
+            "curvature": 1.8618427444512992e-05,
+            "energy": 52.16476821899414,
+            "fractal_activity": 0.0
+        },
+        {
+            "token": "*",
+            "curvature": 1.778787533387079e-05,
+            "energy": 52.45999717712402,
+            "fractal_activity": 0.0
+        },
+        {
+            "token": " ",
+            "curvature": 1.8824113531934472e-05,
+            "energy": 51.47959899902344,
+            "fractal_activity": 0.0
+        },
+        {
+            "token": "1",
+            "curvature": 1.9298197618885144e-05,
+            "energy": 50.970492680867515,
+            "fractal_activity": 0.0
+        },
+        {
+            "token": "0",
+            "curvature": 1.8562755296140192e-05,
+            "energy": 53.29514535268148,
+            "fractal_activity": 0.0
+        },
+        {
+            "token": " ",
+            "curvature": 2.0083084462404106e-05,
+            "energy": 51.18127759297689,
+            "fractal_activity": 0.0
+        },
+        {
+            "token": "=",
+            "curvature": 1.950705138635082e-05,
+            "energy": 52.6542854309082,
+            "fractal_activity": 0.0
+        },
+        {
+            "token": " ",
+            "curvature": 1.967715031507093e-05,
+            "energy": 51.45270824432373,
+            "fractal_activity": 0.0
+        },
+        {
+            "token": "9",
+            "curvature": 2.0053815788401153e-05,
+            "energy": 50.832567850748696,
+            "fractal_activity": 0.0
+        },
+        {
+            "token": "9",
+            "curvature": 1.978939069857688e-05,
+            "energy": 53.9475294748942,
+            "fractal_activity": 0.0
+        },
+        {
+            "token": "9",
+            "curvature": 1.974565758426176e-05,
+            "energy": 51.245418866475426,
+            "fractal_activity": 0.0
+        },
+        {
+            "token": "0",
+            "curvature": 1.8390758128816742e-05,
+            "energy": 50.405799865722656,
+            "fractal_activity": 0.0
+        }
+    ]
+}

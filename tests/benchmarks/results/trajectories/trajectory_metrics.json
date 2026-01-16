@@ -1,0 +1,7 @@
+{
+    "sequence_length": 50,
+    "manifold_vram_mb": 200.9013671875,
+    "transformer_vram_mb": 201.6650390625,
+    "manifold_trajectory_variance": 42.0586051940918,
+    "transformer_trajectory_variance": 26.32975959777832
+}

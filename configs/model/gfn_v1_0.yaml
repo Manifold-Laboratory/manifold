@@ -1,40 +1,64 @@
-# MANIFOLD v1.0: Unified Conscious Engine Config
-# Convergence: Thermodynamics + Symmetries + Fractals
-
+# Manifold v1.0 Golden Configuration ("The Conscious Engine")
+# Fully utilizing Cognitive Physics for maximum reasoning depth.
+# Estimated Params: ~4M (O(1) Memory Optimized)
 model:
-  dim: 512
-  depth: 8
-  heads: 8
-  rank: 64
-  integrator_type: 'heun'
-  use_scan: false
+  # --- Architecture ---
+  vocab_size: 16       
+  dim: 512            
+  depth: 12           
+  rank: 64            # High Rank for rich semantic geometry
+  heads: 8            # 8 Isomeric Heads
+  integrator: "rk45"  # Dormand-Prince (Adaptive Step Size) - Precision Reasoning
+  use_scan: false     # Sequential mode for depth-adaptive reasoning
+  use_adjoint: true   # Enable Adjoint sensitivity for memory efficiency
 
-  # Cognitive Physics Suite (The Three Pillars)
+  # --- Cognitive Physics (Internal Dynamics) ---
+  # v1.0 Features Fully Enabled
   physics:
-    # 1. Active Inference (Thermodynamics)
+    
+    # v0.5: Active Inference
+    # The model modulates its own geometry based on thought content.
     active_inference:
       enabled: true
+      
+      # 1. Reactive Curvature (Plasticity)
+      # Geometry adapts to reinforce successful logical paths.
       reactive_curvature:
         enabled: true
         plasticity: 0.1
+        decay: 0.95
+
+      # 2. Logical Singularities (Black Holes)
+      # Creates attention sinks for pivotal concepts (e.g., '=', '+')
       singularities:
         enabled: true
-        threshold: 0.85
-        strength: 5.0
+        strength: 15.0   # Strong gravity
+        threshold: 0.82
+
+      # 3. Recursive Geodesics
+      # Hindsight mechanisms
+      recursive_geodesics:
+        enabled: true
+
+      # 4. Dynamic Time (Autonomous Geometric Attention)
+      # "Time dilation" allows spending more compute on hard steps.
       dynamic_time:
         enabled: true
-        range: [0.1, 5.0]
-    
-    # 2. Semantic Symmetries (Noether)
+        range: [0.05, 8.0] # Wide range for deep contemplation
+
+    # v0.7: Semantic Symmetries (Noether)
+    # Enforces consistency across parallel reasoning tracks.
     symmetries:
       enabled: true
-      isomeric_groups: [[0, 1], [2, 3], [4, 5], [6, 7]] # Balanced invariance
-    
-    # 3. Fractal Manifolds (Recursion)
+      isomeric_groups: [[0, 1], [2, 3], [4, 5], [6, 7]] # Pairwise symmetry
+
+    # v0.8: Fractal Manifolds
+    # Multiscale resolution: "Zoom in" on complex thoughts.
     fractal:
       enabled: true
-      threshold: 0.4
-      alpha: 0.2
-    
+      threshold: 0.6
+      alpha: 0.25
+
+    # Stability
     stability:
       curvature_clamp: 10.0
