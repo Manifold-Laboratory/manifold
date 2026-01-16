@@ -110,6 +110,7 @@ data/raw/
 data/processed/
 *.hdf5
 *.h5
+.data/
 
 # Secrets and credentials
 .env

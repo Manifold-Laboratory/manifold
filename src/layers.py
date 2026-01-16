@@ -377,6 +377,10 @@ class ParallelMLayer(nn.Module):
         # This is another scan! 
         # x_t = 1 * x_{t-1} + (v_t * dt)
         x_update = v_seq * dt
+        # Position scan: x_t = x_{t-1} + v_t * dt
+        A_pos = torch.ones_like(v_seq)  # Identity for position accumulation
+        x_seq = parallel_scan(A_pos, x_update)
+        
         # In Parallel mode, we don't return individual head curvatures currently 
         # (needs complex extraction from the scan parameters)
         return x_seq, v_seq, None, []

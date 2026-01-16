@@ -1,0 +1,25 @@
+model:
+  dim: 256
+  depth: 6
+  heads: 4
+  vocab_size: 33278  # Standard WikiText-2 vocab size
+  max_len: 512
+  use_scan: true
+  
+physics:
+  dt_scale: 0.1
+  alpha: 0.99  # High memory retention for language
+  solver: "heun"
+  active_inference:
+    enabled: true
+    adaptive_dt: true
+    plasticity: true
+    
+training:
+  batch_size: 8
+  lr: 2.0e-4
+  epochs: 100
+  grad_clip: 1.0
+  log_every: 50
+  save_dir: "checkpoints/wikitext"
+  seed: 42
