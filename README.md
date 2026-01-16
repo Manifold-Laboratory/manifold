@@ -65,7 +65,7 @@ Manifold demonstrates superior scaling and efficiency compared to Transformers a
 ### Throughput
 *Fused CUDA kernels provide significant acceleration for low-latency inference.*
 
-- **Training**: Optimization via Parallel Associative Scan (O(log N))
+- **Training**: Optimization via Parallel Associative Scan (O(log N)).
 - **Inference**: High-speed trajectory integration with fused kernels.
 
 ---
