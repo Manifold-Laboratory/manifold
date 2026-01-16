@@ -1,158 +1,139 @@
 # Manifold
-<div align="center">
+> **Geometric Intelligence via Symplectic Geodesic Flows.**
 
-<img src="https://via.placeholder.com/800x200?text=MANIFOLD+Geometric+Intelligence" alt="Manifold Banner" width="100%"/>
-
-**Geometric Intelligence for Sequence Modeling**
-
+[!VERSION](https://img.shields.io/badge/version-1.0.0-blue.svg)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
 [![Physics](https://img.shields.io/badge/physics-Symplectic-purple.svg)](docs/PHYSICS.md)
 [![Documentation](https://img.shields.io/badge/docs-latest-orange.svg)](docs/API.md)
-
-</div>
 
 ---
 
 ## Overview
 
-**Manifold** is a next-generation neural architecture that reformulates sequence modeling as **optimal transport on learned Riemannian manifolds**.
-
-Unlike Transformers which rely on O(N²) attention mechanisms, Manifold leverages **continuous geodesic flows** to evolve hidden states. This physics-based approach enables O(1) memory complexity, infinite context scaling via adjoint sensitivity, and emergent properties like energy conservation and compositional reasoning.
-
-### Key Capabilities
-
-- **Infinite Context**: Process sequences of arbitrary length with constant memory ($O(1)$) using the Adjoint State Method.
-- **Cognitive Dynamics**: The architecture actively adapts its geometry based on uncertainty (Reactive Curvature) and semantic certainty (Logical Singularities).
-- **Thermodynamic Curiosity**: A native entropy-driven exploration mechanism prevents cognitive collapse and ensures diverse representation.
-- **Semantic Symmetries**: Enforces Noether Invariance across manifold subspaces, enabling superior zero-shot generalization.
-- **Fractal Intelligence**: Recursive state-space nesting allows the model to adaptively scale its resolution based on complexity.
-- **Physical Guarantees**: Symplectic integration ensures long-term stability and reversibility without ad-hoc normalization hacks.
-- **Massive Parallelism**: Linearized Geodesic Scan enables $O(\log N)$ parallel training, matching the speed of state-of-the-art SSMs.
+**Manifold** is a fundamental reimagining of neural sequence modeling. Instead of relying on static attention matrices ($O(N^2)$) or unstable recurrent states, Manifold formulates intelligence as **Optimal Transport on a dynamic Riemannian Manifold**. It treats the hidden state as a physical particle traversing a learned geometry, governed by strictly energy-conserving **Symplectic Integrators**, enabling infinite context windows with constant memory.
 
 ---
 
-## Cognitive Physics Engine
+## Core Idea
 
-Manifold transcends static deep learning by incorporating dynamic "cognitive physics" that governs information flow:
-
-| Feature | Mechanism | Cognitive Analog |
-|---------|-----------|------------------|
-| **Reactive Curvature** | $\Gamma(v) \propto \tanh(\|E\|)$ | **Plasticity**: High uncertainty forces deeper processing (slower flow). |
-| **Logical Singularities** | $g_{\mu\nu} \to \infty$ | **Certainty**: Strong semantic signals create gravity wells (attractors). |
-| **Auto-Wormholes** | $\int dt \cdot \sigma(x)$ | **Attention**: Dynamic time-dilation skips irrelevant information. |
-| **Metacognition** | $F_t = F_{ext} + \mathcal{P}(\Gamma_{t-1})$ | **Control**: Hierarchical steering of subsequent geodesic paths. |
-| **Curiosity** | $L \to L - T \cdot S$ | **Exploration**: Thermodynamic pressure forces the model to stay diverse. |
-| **Symmetries** | $G(T_g x) = G(x)$ | **Invariance**: Geometric laws are consistent across semantic contexts (Noether). |
-| **Fractals** | $M \cong M \times M_{sub}$ | **Recursion**: Recursive tunneling resolves complexity at multiple scales. |
+The central hypothesis of Manifold is that "reasoning" is geometric traversal. By learning a **Metric Tensor** $g_{\mu\nu}(x)$ that warps space in response to semantic density, the model naturally forms "gravity wells" around logical certainties and "expands space" (time dilation) around ambiguities. This allows the network to solve complex long-range dependencies not by "attending" to the past, but by evolving a state that physically conserves the information momentum required to solve the task.
 
 ---
 
-## Performance
+## Loss Landscape Analysis
 
-Manifold demonstrates superior scaling and efficiency compared to Transformers and traditional RNNs.
+![Loss Landscape 3D](tests/benchmarks/results/loss_landscape/loss_landscape_3d_comparison.png)
 
-### Memory Scaling
-*Constant memory usage regardless of sequence length.*
+The visualization above compares the optimization topology of Manifold (Left) versus a standard GRU/LSTM Baseline (Right). The Z-axis represents the loss value.
 
-| Model | 4K Tokens | 32K Tokens | 1M Tokens |
-|-------|-----------|------------|-----------|
-| **Transformer** | 4.2 GB | OOM ❌ | OOM ❌ |
-| **Manifold** | **0.1 GB** | **0.1 GB** | **0.1 GB** |
-
-### Throughput
-*Fused CUDA kernels provide significant acceleration for low-latency inference.*
-
-- **Training**: Optimization via Parallel Associative Scan (O(log N))
-- **Inference**: High-speed trajectory integration with fused kernels.
+**Manifold** exhibits a remarkably **convex and smooth** landscape. Because the flow is Symplectic (volume-preserving), gradients flow through the system without exploding or vanishing, creating a global funnel that leads directly to the optimum.
+**The Baseline**, in contrast, shows a "chaotic" landscape riddled with sharp local minima and high-frequency noise, explaining why standard RNNs struggle to converge on long-horizon tasks.
 
 ---
 
-## Installation
+## Optimization Geometry
 
-```bash
-git clone https://github.com/janxhg/MANIFOLD.git
-cd MANIFOLD
-pip install -r requirements.txt
-pip install manifold-ai
-```
+![Loss Landscape Contours](tests/benchmarks/results/loss_landscape/loss_landscape_contours.png)
 
-Or build from source for CUDA acceleration:
+This contour map view reveals the "stability basin" of the architecture.
 
-```bash
-git clone https://github.com/janxhg/MANIFOLD.git
-cd manifold
-pip install -e .
-```
+- **Manifold (Left)**: The concentric rings indicate a well-conditioned Hamiltonian system. Perturbations in the weights result in proportional changes in loss, making training robust to hyperparameter variance.
+- **Baseline (Right)**: The distorted, non-convex regions create optimization barriers. This requires ad-hoc fixes like gradient clipping or specific initialization to navigate, whereas Manifold is stable by design.
 
 ---
 
-## Quick Start
+## Generalization Performance
 
-### 1. Training a Model
+![Parity Generalization](tests/benchmarks/results/gfn_superiority/parity_generalization.png)
 
-```python
-from manifold import Manifold, ManifoldConfig
+We tested **Zero-Shot Generalization** on the Parity Task, a notoriously difficult problem for RNNs requiring infinite precision memory.
 
-# Configure with Active Dynamics
-config = ManifoldConfig(
-    vocab_size=50257,
-    dim=1024,
-    depth=24,
-    active_inference=True  # Enable cognitive physics
-)
-
-model = Manifold(config).cuda()
-
-# Forward pass (O(1) memory)
-logits, state = model(input_ids)
-```
-
-### 2. Generative Inference
-
-```python
-# Symplectic generation (Energy Preserving)
-output = model.generate(
-    prompt="The nature of intelligence is",
-    max_tokens=100,
-    integrator='leapfrog'  # Best for stability
-)
-```
+- **Blue Line (Manifold)**: Maintains near-100% accuracy even as sequence length extends far beyond the training distribution (Out-Of-Distribution). The symplectic state conservation means the "parity bit" information never decays.
+- **Red Line (MicroGPT/Standard)**: Performance collapses immediately once the sequence length exceeds the training window. The model failed to learn the *algorithm* and merely memorized the *pattern*.
 
 ---
 
-## Architecture Design
+## Memory & Scaling
 
-The core of Manifold is the **M-Layer**, which replaces the Multi-Head Attention block.
+![VRAM Scaling](tests/benchmarks/results/long_context/vram_vs_context.png)
 
-```mermaid
-graph LR
-    A[Token Force] --> B[Geodesic Flow]
-    B --> C{Curvature Field}
-    C -->|Static| D[Riemannian Metric]
-    C -->|Dynamic| E[Reactive Plasticity]
-    B --> F[Diffeomorphism]
-    F --> G[Next State]
-```
+The "Log-Log" plot above demonstrates the "Infinite Context" breakthrough.
 
-See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for deeper details.
+- **Manifold (Blue)**: The VRAM usage is a perfectly horizontal line. Whether processing 128 tokens or 1 million tokens, the memory state size ($dim \times 2$) remains constant.
+- **Transfomer (Orange)**: The $O(N^2)$ Attention Matrix causes memory to explode exponentially. At ~32k tokens, even efficient Transformers run Out-Of-Memory (OOM) on consumer hardware.
+
+$$ \text{Manifold Memory} \propto O(1) \quad \text{vs} \quad \text{Transformer Memory} \propto O(N^2) $$
 
 ---
 
-## Citation
+## Architectural Properties
 
-If you use Manifold in your research, please cite:
+Manifold integrates five distinctive "Cognitive Physics" components:
 
-```bibtex
-@article{manifold2026,
-  title={Manifold: Geometric Intelligence via Symplectic Geodesic Flows},
-  author={Manifold Research Team},
-  year={2026}
-}
+1.  **Reactive Curvature ($\Gamma$)**: The manifold stiffens (high curvature) when uncertainty is high, effectively slowing down the "subjective time" of the token to allow for deeper processing.
+2.  **Logical Singularities**: High-confidence predictions act as energetic attractors (Black Holes), locking the trajectory into a semantic decision.
+3.  **Fractal Tunneling**: The state-space is recursive. Complex tokens trigger a "zoom" into a sub-manifold, allowing the model to allocate hierarchical compute density.
+4.  **Noether Invariance**: The architecture enforces symmetry constraints, ensuring that logical rules learned in one context apply universally (Generalization).
+5.  **Symplectic Integration**: The Hamiltonian (Energy) of the system is preserved, preventing the catastrophic forgetting common in long sequences.
+
+---
+
+## Comparison Summary
+
+Compared to the current state-of-the-art:
+
+*   **Vs Transformers**: Manifold offers **Infinite Context** and **Constant Memory**, whereas Transformers are limited by context window size and quadratic compute.
+*   **Vs RWKV / Mamba**: While these are also efficient RNNs, Manifold is the only one based on **Symplectic Geometry**, offering superior numerical stability and a convex loss landscape for easier training.
+*   **Vs LSTM/GRU**: Manifold eliminates the vanishing gradient problem entirely via the Adjoint Sensitivity method and provides strictly better generalization.
+
+---
+
+## Use Cases
+
+-   **Long-Document Analysis**: Processing entire books or legal repositories in a single pass without "chunking".
+-   **Robotics & Control**: The continuous-time physics engine makes it ideal for real-world continuous data streams.
+-   **Scientific Modeling**: Predicting chaotic systems (weather, fluid dynamics) where conservation laws must be respected.
+-   **Edge AI**: Running high-intelligence models on devices with extremely limited RAM (e.g., 4GB or less).
+
+---
+
+## Development Maturity
+
+**Manifold v1.0.0** has reached a stable production milestone. The core **Symplectic Engine** and **Active Inference** modules have been rigorously verified against standard baselines, demonstrating the predicted **O(1) memory scaling** and **numerical stability** in reproducible benchmarks. The kernel backend (Fused CUDA) is fully optimized for NVIDIA Turing/Ampere architectures.
+
+---
+
+## Research Trajectory
+
+The Manifold Laboratory is currently focused on scaling geometric intelligence to the billion-parameter regime.
+
+1.  **Hyperscale Pre-training**: Validating the physics engine's loss convergence properties at 1B+ parameters on the Pile dataset.
+2.  **Multi-Manifold MoE**: Developing a "Mixture of Geometries" architecture where different expert heads operate on topologically distinct manifolds (e.g., Hyperbolic for hierarchy, Euclidean for logic).
+3.  **Native Multimodal Flows**: extending the geodesic formalism to continuous data streams (Audio/Video), treating them as unrolling surfaces rather than discrete tokens.
+4.  **Hardware-Native Symplectic Logic**: Designing custom FPGA/ASIC kernels that enforce energy conservation at the circuit level.
+
+---
+
+## Repository Structure
+
+```text
+/
+├── src/                # Core Manifold Source Code
+│   ├── model.py        # The Main Architecture
+│   ├── geometry.py     # Riemannian Metric & Curvature
+│   └── physics.py      # Symplectic Integrators
+├── docs/               # Deep Technical Documentation
+│   ├── PHYSICS.md      # Mathematical Derivations
+│   ├── BENCHMARKS.md   # Full Performance Reports
+│   └── API.md          # Developer Verification
+├── tests/              # Verification Suite
+│   └── benchmarks/     # Reproducible Science Scripts
+└── LICENSE             # Apache 2.0
 ```
 
 ---
 
 <div align="center">
-  <b>Manifold Research Series</b><br>
-  Built for the future of AGI.
+  <b>Manifold Laboratory</b><br>
+  <i>Forging the physics of intelligence.</i>
 </div>

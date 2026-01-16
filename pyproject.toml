@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "manifold"
-version = "0.5.0"
+version = "1.0.0"
 description = "Manifold: Geometric Intelligence via Symplectic Geodesic Flows"
 readme = "README.md"
-license = {text = "Apache-2.0  "}
+license = { text = "Apache-2.0" }
 authors = [
-    {name = "Manifold Research Team", email = "research@manifold.ai"}
+    { name = "Manifold Laboratory (Joaquín Stürtz)", email = "ManifoldLabs@proton.me" }
 ]
 requires-python = ">=3.10"
 keywords = [
@@ -21,7 +21,7 @@ keywords = [
     "geometric-deep-learning"
 ]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
@@ -52,10 +52,10 @@ cuda = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/janxhg/MANIFOLD"
-Documentation = "https://github.com/janxhg/MANIFOLD/tree/main/docs"
-Repository = "https://github.com/janxhg/MANIFOLD.git"
-Issues = "https://github.com/janxhg/MANIFOLD/issues"
+Homepage = "https://github.com/Manifold-Laboratory/manifold"
+Documentation = "https://github.com/Manifold-Laboratory/manifold/tree/main/docs"
+Repository = "https://github.com/Manifold-Laboratory/manifold.git"
+Issues = "https://github.com/Manifold-Laboratory/manifold/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

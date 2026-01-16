@@ -42,9 +42,9 @@ class Manifold(nn.Module):
         self.embedding = nn.Embedding(vocab_size, dim)
         
         # Stack of Multi-Head Manifold Layers
-        print(f"🚀 MANIFOLD Init: {depth} layers, {heads} heads, {dim} dim, {integrator_type}, scan={use_scan}")
+        print(f"[*] MANIFOLD Init: {depth} layers, {heads} heads, {dim} dim, {integrator_type}, scan={use_scan}")
         if self.physics_config.get('active_inference', {}).get('enabled', False):
-             print(f"🧠 Active Inference ENABLED (Plasticity, Singularities, Dynamic Time)")
+             print(f"[*] Active Inference ENABLED (Plasticity, Singularities, Dynamic Time)")
         
         self.layers = nn.ModuleList()
         for _ in range(depth):

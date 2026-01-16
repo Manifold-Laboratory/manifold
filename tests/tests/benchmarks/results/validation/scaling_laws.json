@@ -1,0 +1,74 @@
+[
+  {
+    "params": 96712,
+    "params_M": 0.1,
+    "vram_mb": 11.56,
+    "throughput": 29.18,
+    "config": {
+      "dim": 128,
+      "depth": 2,
+      "heads": 2
+    },
+    "name": "d128_L2"
+  },
+  {
+    "params": 176464,
+    "params_M": 0.18,
+    "vram_mb": 11.88,
+    "throughput": 15.45,
+    "config": {
+      "dim": 128,
+      "depth": 4,
+      "heads": 2
+    },
+    "name": "d128_L4"
+  },
+  {
+    "params": 598624,
+    "params_M": 0.6,
+    "vram_mb": 14.54,
+    "throughput": 8.49,
+    "config": {
+      "dim": 256,
+      "depth": 4,
+      "heads": 4
+    },
+    "name": "d256_L4"
+  },
+  {
+    "params": 1163392,
+    "params_M": 1.16,
+    "vram_mb": 16.72,
+    "throughput": 4.12,
+    "config": {
+      "dim": 256,
+      "depth": 8,
+      "heads": 4
+    },
+    "name": "d256_L8"
+  },
+  {
+    "params": 3310240,
+    "params_M": 3.31,
+    "vram_mb": 27.01,
+    "throughput": 2.57,
+    "config": {
+      "dim": 512,
+      "depth": 6,
+      "heads": 8
+    },
+    "name": "d512_L6"
+  },
+  {
+    "params": 6552832,
+    "params_M": 6.55,
+    "vram_mb": 39.46,
+    "throughput": 1.15,
+    "config": {
+      "dim": 512,
+      "depth": 12,
+      "heads": 8
+    },
+    "name": "d512_L12"
+  }
+]

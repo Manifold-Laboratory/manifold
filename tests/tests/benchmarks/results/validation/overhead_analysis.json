@@ -1,0 +1,50 @@
+{
+  "baseline": {
+    "params": 881008,
+    "vram_mb": 15.63,
+    "throughput": 4.26,
+    "latency_ms": 3752.95
+  },
+  "+active_inference": {
+    "params": 881008,
+    "vram_mb": 15.63,
+    "throughput": 5.59,
+    "latency_ms": 2860.42
+  },
+  "+reactive_curvature": {
+    "params": 881008,
+    "vram_mb": 15.63,
+    "throughput": 5.37,
+    "latency_ms": 2977.89
+  },
+  "+singularities": {
+    "params": 881008,
+    "vram_mb": 15.63,
+    "throughput": 5.57,
+    "latency_ms": 2871.49
+  },
+  "+dynamic_time": {
+    "params": 1004632,
+    "vram_mb": 16.09,
+    "throughput": 5.43,
+    "latency_ms": 2946.91
+  },
+  "+symmetries": {
+    "params": 867952,
+    "vram_mb": 15.58,
+    "throughput": 5.48,
+    "latency_ms": 2921.42
+  },
+  "+fractal": {
+    "params": 1020152,
+    "vram_mb": 16.17,
+    "throughput": 5.57,
+    "latency_ms": 2873.15
+  },
+  "all_features": {
+    "params": 1150172,
+    "vram_mb": 16.65,
+    "throughput": 5.5,
+    "latency_ms": 2909.37
+  }
+}

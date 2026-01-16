@@ -20,8 +20,8 @@ Usage:
     optimizer = RiemannianAdam(model.parameters(), lr=1e-3)
 """
 
-__version__ = "0.5.0"
-__author__ = "GFN Research Group"
+__version__ = "1.0.0"
+__author__ = "Manifold Laboratory (Joaquín Stürtz)"
 
 # Core Model
 from .model import Manifold as GFN  # Alias for backward compatibility

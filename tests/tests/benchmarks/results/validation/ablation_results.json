@@ -1,0 +1,17 @@
+{
+  "baseline": {
+    "error": "'charmap' codec can't encode character '\\U0001f680' in position 0: character maps to <undefined>"
+  },
+  "active_inference": {
+    "error": "'charmap' codec can't encode character '\\U0001f680' in position 0: character maps to <undefined>"
+  },
+  "active+singularities": {
+    "error": "'charmap' codec can't encode character '\\U0001f680' in position 0: character maps to <undefined>"
+  },
+  "active+symmetries": {
+    "error": "'charmap' codec can't encode character '\\U0001f680' in position 0: character maps to <undefined>"
+  },
+  "all_features": {
+    "error": "'charmap' codec can't encode character '\\U0001f680' in position 0: character maps to <undefined>"
+  }
+}
