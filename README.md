@@ -1,7 +1,7 @@
 # Manifold
 > **Geometric Intelligence via Symplectic Geodesic Flows.**
 
-[![VERSION](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/Manifold-Laboratory/manifold/releases)
+[![VERSION](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/Manifold-Laboratory/manifold/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
 [![Physics](https://img.shields.io/badge/physics-Symplectic-purple.svg)](docs/PHYSICS.md)
 [![Documentation](https://img.shields.io/badge/docs-latest-orange.svg)](docs/API.md)
