@@ -635,6 +635,57 @@ class TimeDilationHead(nn.Module):
         
         return dt_scale
 
+class ThinkingHead(nn.Module):
+    """
+    Adaptive Computation Time (Geodesic Micro-Stepping).
+    Predicts the number of internal 'Coasting' steps (K) needed to resolve
+    semantic complexity before emitting a token.
+    
+    Mechanism:
+    If 'Energy' or 'Confusion' is high, take more steps.
+    """
+    def __init__(self, dim, min_steps=1, max_steps=5):
+        super().__init__()
+        self.min_steps = min_steps
+        self.max_steps = max_steps
+        
+        # ACT Predictor
+        # Inputs: State (x, v) + Force (Current Input)
+        self.net = nn.Sequential(
+            nn.Linear(dim * 3, dim // 2),
+            nn.LayerNorm(dim // 2),
+            nn.Tanh(),
+            nn.Linear(dim // 2, 1),
+            nn.Sigmoid() # [0, 1] confidence
+        )
+        
+    def forward(self, x, v, force):
+        """
+        Returns:
+            steps (int): Discrete number of steps (for loop)
+            confidence (float): Value [0,1] for ACT loss/ponder cost
+        """
+        if force is None: force = torch.zeros_like(x)
+        state = torch.cat([x, v, force], dim=-1)
+        
+        confidence = self.net(state) # [batch, 1]
+        
+        # Lerp between min and max steps
+        # Use mean confidence for the batch or per-sample? 
+        # Typically layers must sync, so we take mean or max steps for the batch.
+        # Let's use MEAN for efficiency in batch processing.
+        avg_conf = confidence.mean()
+        
+        # Continuous steps (for pondering cost)
+        raw_steps = self.min_steps + avg_conf * (self.max_steps - self.min_steps)
+        
+        # Discrete steps (for loop control)
+        # We round up to be safe? Or nearest?
+        k_steps = int(torch.round(raw_steps).item())
+        k_steps = max(self.min_steps, min(self.max_steps, k_steps))
+        
+        return k_steps, confidence
+
 # --- Analytic Manifolds (MoM Components) ---
 
 class EuclideanChristoffel(nn.Module):

@@ -29,7 +29,12 @@ physics:
         euclidean: [0]
         hyperbolic: [1]
         spherical: [2]
-        learnable: [3]true
+        learnable: [3]
+    
+    thinking:
+      enabled: true
+      min_steps: 1
+      max_steps: 5
     
 training:
   batch_size: 1024 # Scaled up for speed

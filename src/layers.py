@@ -163,7 +163,19 @@ class MLayer(nn.Module):
                 scale_vals.append(val)
                 
             self.dt_params = nn.Parameter(torch.tensor(scale_vals))
+            self.dt_params = nn.Parameter(torch.tensor(scale_vals))
             self.time_heads = None
+            
+        # Thinking Heads (Adaptive Computation Time)
+        thinking_cfg = self.physics_config.get('thinking', {})
+        self.thinking_head = thinking_cfg.get('enabled', False)
+        if self.thinking_head:
+            from .geometry import ThinkingHead
+            min_s = thinking_cfg.get('min_steps', 1)
+            max_s = thinking_cfg.get('max_steps', 5)
+            self.thinking_heads = nn.ModuleList([
+                ThinkingHead(self.head_dim, min_s, max_s) for _ in range(heads)
+            ])
         
         self.integrators = nn.ModuleList()
         for i in range(heads):
@@ -271,7 +283,25 @@ class MLayer(nn.Module):
                 gamma = self.christoffels[i](v_heads[i], x_heads[i])
             christoffel_outputs.append(gamma)
             
-            x_h, v_h = self.integrators[i](x_heads[i], v_heads[i], force=f_heads[i], dt_scale=scale)
+            # Thinking Head (Adaptive Micro-Stepping)
+            # If enabled, we perform 'k' integration steps.
+            # Step 0: Input Force != 0.
+            # Steps 1..k: Input Force = 0 (Coasting).
+            if self.thinking_head:
+                k_steps, confidence = self.thinking_heads[i](x_heads[i], v_heads[i], f_heads[i])
+                
+                # Step 0 with Force
+                x_h, v_h = self.integrators[i](x_heads[i], v_heads[i], force=f_heads[i], dt_scale=scale)
+                
+                # Steps 1..k (Coasting in thought)
+                # We use a pure geodesic flow (force=None) to let the manifold structure resolve the state
+                for _ in range(k_steps - 1):
+                     # Optionally, we could scale dt for thinking steps? 
+                     # For now, use same dt_scale
+                     x_h, v_h = self.integrators[i](x_h, v_h, force=None, dt_scale=scale)
+            else:
+                # Standard single-step integration
+                x_h, v_h = self.integrators[i](x_heads[i], v_heads[i], force=f_heads[i], dt_scale=scale)
             
             x_outs.append(x_h)
             v_outs.append(v_h)
