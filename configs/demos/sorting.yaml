@@ -10,6 +10,11 @@ physics:
   dt_scale: 0.1
   alpha: 0.99
   solver: "heun"  # Heun is good for non-linear ODEs
+  
+  embedding:
+    type: implicit
+    coord_dim: 16
+
   active_inference:
     enabled: true
     reactive_curvature:
@@ -30,11 +35,6 @@ physics:
         hyperbolic: [1]
         spherical: [2]
         learnable: [3]
-    
-    thinking:
-      enabled: true
-      min_steps: 1
-      max_steps: 5
     
 training:
   batch_size: 1024 # Scaled up for speed

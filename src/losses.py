@@ -142,6 +142,9 @@ def noether_loss(christoffel_outputs: list, isomeric_groups: list = None, lambda
     return lambda_n * (total_diff / count)
 
 
+
+
+
 class GFNLoss(nn.Module):
     """
     Combined loss for GFN training.

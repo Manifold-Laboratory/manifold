@@ -39,7 +39,21 @@ class Manifold(nn.Module):
         self.physics_config = physics_config or {}
         
         # Token embedding
-        self.embedding = nn.Embedding(vocab_size, dim)
+        emb_cfg = self.physics_config.get('embedding', {})
+        emb_type = emb_cfg.get('type', 'standard')
+        
+        if emb_type == 'implicit':
+            from .embeddings import ImplicitEmbedding
+            coord_dim = emb_cfg.get('coord_dim', 16)
+            print(f"[*] Using IMPLICIT Neural Embeddings (SIREN, coord_dim={coord_dim})")
+            self.embedding = ImplicitEmbedding(vocab_size, dim, coord_dim=coord_dim)
+        elif emb_type == 'functional':
+            from .embeddings import FunctionalEmbedding
+            coord_dim = emb_cfg.get('coord_dim', 16)
+            print(f"[*] Using FUNCTIONAL Neural Embeddings (Pure Math, coord_dim={coord_dim})")
+            self.embedding = FunctionalEmbedding(vocab_size, dim, coord_dim=coord_dim)
+        else:
+            self.embedding = nn.Embedding(vocab_size, dim)
         
         # Stack of Multi-Head Manifold Layers
         print(f"[*] MANIFOLD Init: {depth} layers, {heads} heads, {dim} dim, {integrator_type}, scan={use_scan}")

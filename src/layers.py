@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from .geometry import LowRankChristoffel, SymplecticIntegrator, RK4Integrator, HeunIntegrator, LeapfrogIntegrator, DormandPrinceIntegrator, ReactiveChristoffel, TimeDilationHead, HyperChristoffel, EuclideanChristoffel, HyperbolicChristoffel, SphericalChristoffel
+from .geometry import LowRankChristoffel, SymplecticIntegrator, RK4Integrator, HeunIntegrator, LeapfrogIntegrator, DormandPrinceIntegrator, ReactiveChristoffel, HyperChristoffel, EuclideanChristoffel, HyperbolicChristoffel, SphericalChristoffel
 from .scan import parallel_scan
 
 class RiemannianGating(nn.Module):
@@ -140,13 +140,11 @@ class MLayer(nn.Module):
         
         if self.use_dynamic_time:
             # Auto-Wormholes: Model predicts dt per head/step
-            range_min, range_max = self.physics_config.get('active_inference', {}).get('dynamic_time', {}).get('range', [0.1, 5.0])
-            self.time_heads = nn.ModuleList([
-                TimeDilationHead(self.head_dim, range_min, range_max)
-                for _ in range(heads)
-            ])
+            # Disabled for now as TimeDilationHead was removed
+            # range_min, range_max = self.physics_config.get('active_inference', {}).get('dynamic_time', {}).get('range', [0.1, 5.0])
+            self.time_heads = None 
             self.gatings = None
-            # We don't use dt_params in this mode
+            print("Warning: dynamic_time enabled in config but code support was removed. Using scalar dt.")
         else:
             # Gating per head (Legacy Static Wormholes)
             self.gatings = nn.ModuleList([
@@ -163,19 +161,9 @@ class MLayer(nn.Module):
                 scale_vals.append(val)
                 
             self.dt_params = nn.Parameter(torch.tensor(scale_vals))
-            self.dt_params = nn.Parameter(torch.tensor(scale_vals))
             self.time_heads = None
-            
-        # Thinking Heads (Adaptive Computation Time)
-        thinking_cfg = self.physics_config.get('thinking', {})
-        self.thinking_head = thinking_cfg.get('enabled', False)
-        if self.thinking_head:
-            from .geometry import ThinkingHead
-            min_s = thinking_cfg.get('min_steps', 1)
-            max_s = thinking_cfg.get('max_steps', 5)
-            self.thinking_heads = nn.ModuleList([
-                ThinkingHead(self.head_dim, min_s, max_s) for _ in range(heads)
-            ])
+
+
         
         self.integrators = nn.ModuleList()
         for i in range(heads):
@@ -252,10 +240,12 @@ class MLayer(nn.Module):
         v_outs = []
         gate_outputs = [] # Collect gates for next layer's context
         christoffel_outputs = [] # Collect Γ(v) for Noether/Hamiltonian loss
+
         
         for i in range(self.heads):
             # Dynamic time-step selection
-            if self.use_dynamic_time:
+            # Dynamic time-step selection
+            if self.use_dynamic_time and self.time_heads is not None:
                 # Auto-Wormholes: Predict optimal dt for this thought
                 # scale is roughly [0.1, 5.0]
                 dt_scale = self.time_heads[i](x_heads[i], v_heads[i], f_heads[i])
@@ -283,25 +273,7 @@ class MLayer(nn.Module):
                 gamma = self.christoffels[i](v_heads[i], x_heads[i])
             christoffel_outputs.append(gamma)
             
-            # Thinking Head (Adaptive Micro-Stepping)
-            # If enabled, we perform 'k' integration steps.
-            # Step 0: Input Force != 0.
-            # Steps 1..k: Input Force = 0 (Coasting).
-            if self.thinking_head:
-                k_steps, confidence = self.thinking_heads[i](x_heads[i], v_heads[i], f_heads[i])
-                
-                # Step 0 with Force
-                x_h, v_h = self.integrators[i](x_heads[i], v_heads[i], force=f_heads[i], dt_scale=scale)
-                
-                # Steps 1..k (Coasting in thought)
-                # We use a pure geodesic flow (force=None) to let the manifold structure resolve the state
-                for _ in range(k_steps - 1):
-                     # Optionally, we could scale dt for thinking steps? 
-                     # For now, use same dt_scale
-                     x_h, v_h = self.integrators[i](x_h, v_h, force=None, dt_scale=scale)
-            else:
-                # Standard single-step integration
-                x_h, v_h = self.integrators[i](x_heads[i], v_heads[i], force=f_heads[i], dt_scale=scale)
+            x_h, v_h = self.integrators[i](x_heads[i], v_heads[i], force=f_heads[i], dt_scale=scale)
             
             x_outs.append(x_h)
             v_outs.append(v_h)
@@ -325,6 +297,7 @@ class MLayer(nn.Module):
              context_next = gate_outputs[0]
              
         return x_geo, v_geo, context_next, christoffel_outputs
+
 
 
 class ParallelMLayer(nn.Module):
