@@ -21,6 +21,7 @@ def visualize_fractal_zoom(checkpoint_path):
     vocab = "0123456789+-*= "
     # Force fractal config to ensure FractalMLayer is used
     physics_config = {
+        'embedding': {'type': 'functional', 'mode': 'binary', 'coord_dim': 16},
         'fractal': {'enabled': True, 'depth': 2, 'threshold': 0.0}, # Threshold 0 to force activity
         'active_inference': {'enabled': True}
     }

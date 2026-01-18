@@ -1,22 +1,25 @@
 model:
-  dim: 128
-  depth: 4
-  heads: 4
+  dim: 256
+  depth: 8
+  heads: 8
   vocab_size: 100  # Numbers 0-99
   max_len: 20  # Sequence length to sort
   use_scan: false  # CRITICAL: Disable scan to use FULL GEODESIC FLOW
   
 physics:
-  dt_scale: 0.1
-  alpha: 0.99
-  solver: "heun"  # Heun is good for non-linear ODEs
+  solver: "leapfrog"  # Symplectic is safer for long-chain logic
+  stability:
+    base_dt: 0.3
+    damping: 0.05
+    residual_scale: 0.5 # Stability over speed
   
   embedding:
     type: functional # Infinite Input
-    coord_dim: 16
+    coord_dim: 8
+    mode: binary
 
   readout:
-    type: implicit   # Infinite Output
+    type: binary   # Infinite Output
     
   active_inference:
     enabled: true
@@ -40,16 +43,16 @@ physics:
         learnable: [3]
     
 training:
-  batch_size: 1024 # Scaled up for speed
-  lr: 1.0e-2 # Scaled LR for larger batch size
+  batch_size: 256
+  lr: 0.0005 # Discovery: geometric models need lower LR
   epochs: 50
-  grad_clip: 1.0
+  grad_clip: 0.1 # Discovery: tight clipping is mandatory for ODEs
   log_every: 20
   save_dir: "checkpoints/sorting"
   seed: 42
   
 task:
   seq_len: 10
-  num_train: 50000
-  num_val: 5000
+  num_train: 5000
+  num_val: 500
   vocab: 100

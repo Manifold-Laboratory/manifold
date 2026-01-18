@@ -13,7 +13,9 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 # Import centralized VRAM utility
 from tests.benchmarks.bench_utils import measure_peak_memory
-from src import GFN
+# Import centralized VRAM utility
+from tests.benchmarks.bench_utils import measure_peak_memory
+from src.model import Manifold
 
 def visualize_curvature(checkpoint_path):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') # Use CUDA if available for accurate VRAM
@@ -21,7 +23,7 @@ def visualize_curvature(checkpoint_path):
     print("Generating Manifold Visualization...")
     
     # Init model
-    model = GFN(vocab_size=20, dim=512, depth=12, rank=16).to(device)
+    model = Manifold(vocab_size=20, dim=512, depth=12).to(device)
     
     if os.path.exists(checkpoint_path):
         print(f"Loading checkpoint: {checkpoint_path}")

@@ -23,7 +23,7 @@ import os
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src import GFN
+from src.model import Manifold
 # Import centralized VRAM utility
 from tests.benchmarks.bench_utils import measure_peak_memory
 
@@ -112,7 +112,8 @@ def visualize_loss_landscapes():
     depth = 4
     
     print("Creating models...")
-    gfn = GFN(vocab_size=vocab_size, dim=dim, depth=depth, rank=8).to(device)
+    physics_config = {'embedding': {'type': 'functional', 'mode': 'binary', 'coord_dim': 16}}
+    gfn = Manifold(vocab_size=vocab_size, dim=dim, depth=depth, physics_config=physics_config).to(device)
     gpt = MicroGPT(vocab_size=vocab_size, dim=dim, depth=depth, heads=2).to(device)
     
     # Create dummy data batch

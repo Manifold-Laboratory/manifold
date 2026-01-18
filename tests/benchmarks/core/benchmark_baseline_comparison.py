@@ -89,14 +89,29 @@ def train_model(model, task_fn, device, num_steps=300, batch_size=32, lr=1e-3):
         
         optimizer.zero_grad()
         
-        # Handle different model return types
+        # Adaptive Mode
+        is_manifold = isinstance(model, Manifold)
+        readout_type = model.physics_config.get('readout', {}).get('type', 'standard') if is_manifold else 'standard'
+        is_binary = (readout_type == 'binary' or readout_type == 'implicit')
+        
         out = model(inputs)
         if isinstance(out, tuple):
-            logits = out[0]  # Manifold returns (logits, state, christoffels)
+            logits = out[0]
         else:
             logits = out
         
-        loss = criterion(logits.view(-1, logits.size(-1)), targets.view(-1))
+        if is_binary and is_manifold:
+            # Map targets to bits
+            coord_dim = model.physics_config.get('embedding', {}).get('coord_dim', 16)
+            mask = 2**torch.arange(coord_dim).to(device)
+            target_bits = (targets.unsqueeze(-1) & mask) > 0
+            target_bits = target_bits.float() * 2 - 1 # Symmetric targets
+            # Use MSE for coordinate regression on the hypercube
+            mse_criterion = nn.MSELoss()
+            loss = mse_criterion(logits, target_bits)
+        else:
+            loss = criterion(logits.view(-1, logits.size(-1)), targets.view(-1))
+            
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
@@ -124,7 +139,27 @@ def evaluate_accuracy(model, task_fn, device, num_samples=100):
             else:
                 logits = out
             
-            preds = logits.argmax(dim=-1)
+            # Adaptive Decoding
+            is_manifold = isinstance(model, Manifold)
+            vocab_size = logits.size(-1)
+            
+            if is_manifold and vocab_size != targets.max().item() + 1 and vocab_size > 2:
+                 # Bit decoding (Nearest neighbor on the Hypercube)
+                 pred_coords = logits # Already using Tanh
+                 all_ids = torch.arange(targets.max().item() + 1).to(device)
+                 mask = 2**torch.arange(vocab_size).to(device)
+                 vocab_bits = (all_ids.unsqueeze(-1) & mask) > 0
+                 vocab_coords = vocab_bits.float() * 2 - 1
+                 
+                 # L2 distance on the manifold
+                 dists = torch.cdist(pred_coords.view(-1, vocab_size), vocab_coords)
+                 preds = torch.argmin(dists, dim=-1).view(targets.shape)
+            elif is_manifold and vocab_size != targets.max().item() + 1:
+                 # Fast binary check for 0/1 tasks (Symmetric boundary at 0.0)
+                 preds = (logits[:, :, 0] > 0.0).long()
+            else:
+                 preds = logits.argmax(dim=-1)
+                 
             correct += (preds == targets).sum().item()
             total += targets.numel()
     
@@ -156,8 +191,9 @@ def run_benchmark():
         task_results = {}
         
         # Create models
+        physics_config = {'embedding': {'type': 'functional', 'mode': 'binary', 'coord_dim': 16}}
         models = {
-            'Manifold': Manifold(vocab_size, dim=dim, depth=depth, heads=4, integrator_type='heun'),
+            'Manifold': Manifold(vocab_size, dim=dim, depth=depth, heads=4, integrator_type='heun', physics_config=physics_config),
             'GRU': SimpleGRU(vocab_size, dim, depth),
             'LSTM': SimpleLSTM(vocab_size, dim, depth),
         }

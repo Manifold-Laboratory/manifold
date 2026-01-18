@@ -46,8 +46,8 @@ def analyze_model_internals(checkpoint_path, input_text="999 + 1 = 1000"):
         dim=512, 
         depth=12, 
         heads=8,
-        rank=64,
         physics_config={
+            'embedding': {'type': 'functional', 'mode': 'binary', 'coord_dim': 16},
             'active_inference': {'enabled': True, 'reactive_curvature': {'enabled': True, 'plasticity': 0.1}, 'singularities': {'enabled': True, 'strength': 10.0, 'threshold': 0.8}},
             'fractal': {'enabled': True, 'threshold': 0.001},
             'symmetries': {'enabled': True}

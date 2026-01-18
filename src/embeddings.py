@@ -93,10 +93,9 @@ class ImplicitEmbedding(nn.Module):
         # Final projection to exact dimension
         self.out_proj = nn.Linear(hidden_dim, emb_dim)
         
-        # Init final linear to be reasonable magnitude
+        # Init final linear to be reasonable magnitude (match standard embedding scale)
         with torch.no_grad():
-            bound = np.sqrt(6 / hidden_dim) / 30.0
-            self.out_proj.weight.uniform_(-bound, bound)
+            nn.init.xavier_uniform_(self.out_proj.weight)
             nn.init.zeros_(self.out_proj.bias)
             
     def forward(self, input_ids):
@@ -117,20 +116,23 @@ class ImplicitEmbedding(nn.Module):
         # 3. Project
         out = self.out_proj(x)
         
-        return out
+        return out * 1.5 # Moderated boost
 
 class FunctionalEmbedding(nn.Module):
     """
     Pure Functional Embedding (Zero-Lookup).
-    Maps Index -> Sinusoidal Coordinate -> SIREN -> Vector.
+    Maps Index -> Coordinate -> SIREN -> Vector.
+    
+    Modes:
+    - 'sinusoidal': High-freq hash (Good for input uniqueness, bad for readout).
+    - 'binary': Bitwise representation (Good for learning/readout).
     
     O(1) Memory: Parameters do NOT scale with Vocab Size.
     """
-    def __init__(self, vocab_size, emb_dim, coord_dim=16, hidden_dim=64, layers=2):
+    def __init__(self, vocab_size, emb_dim, coord_dim=16, hidden_dim=64, layers=2, mode='binary'):
         super().__init__()
+        self.mode = mode
         self.coord_dim = coord_dim
-        # Ensure even coord_dim for sin/cos split
-        if coord_dim % 2 != 0: self.coord_dim += 1
             
         # SIREN Network
         net = []
@@ -141,16 +143,19 @@ class FunctionalEmbedding(nn.Module):
         self.net = nn.Sequential(*net)
         self.out_proj = nn.Linear(hidden_dim, emb_dim)
         
-        # Init projection
+        # Proper SIREN Init (omega_0=30)
+        # SineLayer handles its own init, we just apply output boost
         with torch.no_grad():
-            bound = np.sqrt(6 / hidden_dim) / 30.0
-            self.out_proj.weight.uniform_(-bound, bound)
+            # self.net[0] is SineLayer, init is already correct there
+            self.out_proj.weight.data *= 1.5 # Boost signal for manifold force
             nn.init.zeros_(self.out_proj.bias)
             
-        # Register frequencies as buffer (fixed)
-        # Log-space frequencies for multi-scale resolution of the ID
-        freqs = torch.exp(torch.arange(0, self.coord_dim, 2).float() * -(np.log(10000.0) / self.coord_dim))
-        self.register_buffer('freqs', freqs)
+        if self.mode == 'sinusoidal':
+            # ensure even
+            if coord_dim % 2 != 0: self.coord_dim += 1
+            # Log-space frequencies for multi-scale resolution of the ID
+            freqs = torch.exp(torch.arange(0, self.coord_dim, 2).float() * -(np.log(10000.0) / self.coord_dim))
+            self.register_buffer('freqs', freqs)
         
     def forward(self, input_ids):
         """
@@ -158,18 +163,25 @@ class FunctionalEmbedding(nn.Module):
             input_ids: [batch, seq_len]
         """
         B, L = input_ids.shape
+        inputs = input_ids.unsqueeze(-1).float()
         
-        # 1. Functional Coordinate Generation (Positional Encoding logic applied to ID)
-        # inputs: [B, L, 1]
-        x = input_ids.unsqueeze(-1).float()
-        
-        # project: [B, L, coord_dim//2]
-        args = x * self.freqs
-        
-        # coords: [B, L, coord_dim] via sin/cos
-        # cat last dim
-        coords = torch.cat([torch.sin(args), torch.cos(args)], dim=-1)
+        if self.mode == 'binary':
+             # Convert IDs to Bits [B, L, coord_dim]
+             # We assume coord_dim is enough bits
+             mask = 2**torch.arange(self.coord_dim).to(input_ids.device)
+             # [B, L, 1] & [D] -> [B, L, D] (Broadcasting)
+             # (ids & mask) > 0  -> Boolean
+             bits = (input_ids.unsqueeze(-1) & mask) > 0
+             coords = bits.float() * 2 - 1 # Map {0, 1} to {-1, 1} (Symmetric is better for SIREN)
+        else:
+            # Sinusoidal
+            args = inputs * self.freqs
+            coords = torch.cat([torch.sin(args), torch.cos(args)], dim=-1)
         
         # 2. Evaluate Field
         x_out = self.net(coords)
-        return self.out_proj(x_out)
+        out = self.out_proj(x_out)
+        
+        # 3. Boost scale to match standard embedding variance
+        # SIREN + Xavier yields ~0.4, so 1.5x - 2.0x is safer for residuals
+        return out * 1.5

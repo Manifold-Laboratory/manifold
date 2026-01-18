@@ -52,8 +52,8 @@ class MLayer(nn.Module):
         self.dim = dim
         self.heads = heads
         self.head_dim = dim // heads
-        self.base_dt = base_dt
         self.physics_config = physics_config or {}
+        self.base_dt = self.physics_config.get('stability', {}).get('base_dt', base_dt)
         
         # 1. Pre-LayerNorm for stability (Standard in modern Transformers)
         self.norm_x = nn.LayerNorm(dim)
@@ -163,6 +163,9 @@ class MLayer(nn.Module):
             self.dt_params = nn.Parameter(torch.tensor(scale_vals))
             self.time_heads = None
 
+        # Latent friction (damping) prevents energy divergence in deep residuals
+        self.damping = self.physics_config.get('stability', {}).get('damping', 0.05)
+
 
         
         self.integrators = nn.ModuleList()
@@ -189,9 +192,11 @@ class MLayer(nn.Module):
             # Init as almost identity to start with stable independent dynamics?
             # Or standard init?
             # Let's use standard init but small to preserve flow structure
-            nn.init.eye_(self.out_proj_x.weight)
+            nn.init.xavier_uniform_(self.out_proj_x.weight)
+            # Full scale for faster learning on discrete logic
             nn.init.zeros_(self.out_proj_x.bias)
-            nn.init.eye_(self.out_proj_v.weight)
+            
+            nn.init.xavier_uniform_(self.out_proj_v.weight)
             nn.init.zeros_(self.out_proj_v.bias)
             
         # Recursive Geodesics: "Copilot" Mixer
@@ -211,9 +216,14 @@ class MLayer(nn.Module):
         Returns:
             x_next, v_next, context_next, christoffel_outputs
         """
-        # 1. Pre-LayerNorm
+        # 1. Pre-LayerNorm (Residual approach)
         x_norm = self.norm_x(x)
-        v_norm = self.norm_v(v)
+        
+        # Momentum-Preserving Stability:
+        # LayerNorm destroys velocity magnitude. We use soft-clamping to prevent 
+        # integration divergence while preserving relative momentum.
+        v_mag = torch.norm(v, dim=-1, keepdim=True)
+        v_norm = v * torch.min(torch.ones_like(v_mag), 5.0 / (v_mag + 1e-6))
         
         # Apply Recursive Context
         if self.use_recursive and context is not None:
@@ -227,6 +237,7 @@ class MLayer(nn.Module):
         
         # 2. Split into heads
         # [batch, dim] -> list of [batch, head_dim]
+        # We chunk the normalized x, but keep v untethered
         x_heads = x_norm.chunk(self.heads, dim=-1)
         v_heads = v_norm.chunk(self.heads, dim=-1)
         
@@ -275,8 +286,14 @@ class MLayer(nn.Module):
             
             x_h, v_h = self.integrators[i](x_heads[i], v_heads[i], force=f_heads[i], dt_scale=scale)
             
-            x_outs.append(x_h)
-            v_outs.append(v_h)
+            # The 'Work' done by the layer is the DELTA from the initial state
+            # Apply Damping: delta_v = delta_v - damping * v
+            v_delta = v_h - v_heads[i]
+            if self.damping > 0:
+                v_delta = v_delta - self.damping * v_heads[i]
+            
+            x_outs.append(x_h - x_heads[i])
+            v_outs.append(v_delta)
             
         # 4. Concatenate
         x_cat = torch.cat(x_outs, dim=-1)
@@ -290,13 +307,15 @@ class MLayer(nn.Module):
             x_geo, v_geo = x_cat, v_cat
             
         # Prepare context for next layer
-        # Concatenate gates [batch, heads]
         if self.heads > 1:
              context_next = torch.cat(gate_outputs, dim=-1)
         else:
              context_next = gate_outputs[0]
              
-        return x_geo, v_geo, context_next, christoffel_outputs
+        # !!! RESIDUALLY ADD TO INPUT !!!
+        # Apply Scaling to the Work Delta to ensure stability in deep networks
+        res_scale = self.physics_config.get('stability', {}).get('residual_scale', 0.5)
+        return x + x_geo * res_scale, v + v_geo * res_scale, context_next, christoffel_outputs
 
 
 

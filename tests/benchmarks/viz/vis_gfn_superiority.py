@@ -41,20 +41,40 @@ class ParityTask:
         
         return x, y
 
-def train_until_convergence(model, task, max_steps=2000, lr=5e-3, device='cuda', threshold=0.01):
-    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4) # Higher LR for fast convergence
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=100)
-    criterion = nn.CrossEntropyLoss()
+def train_until_convergence(model, task, max_steps=2500, lr=5e-4, device='cuda', threshold=0.01):
+    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+    # Start from L=2 (Basic XOR) to ensure mastery before scaling
+    current_length = 2
+    
+    # OneCycleLR is faster and more stable for logical tasks
+    scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=lr, total_steps=max_steps, pct_start=0.2)
     model.train()
+    
+    # Adaptive Loss Selection
+    readout_type = model.physics_config.get('readout', {}).get('type', 'standard')
+    is_binary = (readout_type == 'binary' or readout_type == 'implicit')
+    
+    if is_binary:
+        criterion = nn.BCEWithLogitsLoss()
+        print(f"[*] Training with BCE Loss (Binary Mode)")
+    else:
+        criterion = nn.CrossEntropyLoss()
+        print(f"[*] Training with CrossEntropy Loss (Standard Mode)")
     
     loss_history = []
     
-    pbar = tqdm(range(max_steps), desc=f"Training {model.__class__.__name__}")
+    pbar = tqdm(range(max_steps), desc=f"Training {model.__class__.__name__} (L={current_length})")
     normalized_loss = 1.0
     
     for i in pbar:
-        # Generate short sequences for training (L=20)
-        x, y = task.generate_batch(128, device=device) # Larger batch
+        # 1. Syllabus update: Increase length every 250 steps (Slower pacing for stability)
+        if i > 0 and i % 250 == 0 and current_length < task.length:
+             current_length = min(task.length, current_length + 2)
+             pbar.set_description(f"Training {model.__class__.__name__} (L={current_length})")
+             
+        # Generate batch with current syllabus length
+        temp_task = ParityTask(length=current_length)
+        x, y = temp_task.generate_batch(128, device=device) 
         
         optimizer.zero_grad()
         
@@ -63,19 +83,59 @@ def train_until_convergence(model, task, max_steps=2000, lr=5e-3, device='cuda',
         else:
             logits = model(x)
             
-        loss = criterion(logits.view(-1, task.vocab_size), y.view(-1))
+        if is_binary:
+            # Map targets (IDs) to bits
+            coord_dim = model.physics_config.get('embedding', {}).get('coord_dim', 16)
+            mask = 2**torch.arange(coord_dim).to(device)
+            target_bits = (y.unsqueeze(-1) & mask) > 0
+            target_bits = target_bits.float() # Map {0, 1} to {0, 1} (Neutral 0)
+            
+            # TASK-FOCUSED LOSS
+            v_bits = int(np.ceil(np.log2(task.vocab_size)))
+            v_bits = max(1, v_bits) 
+            
+            # MSE on relevant spatial coordinates
+            # Only train the bits that exist in the vocab
+            v_bits = int(np.ceil(np.log2(task.vocab_size)))
+            v_bits = max(1, v_bits) 
+            loss = criterion(logits[:, :, :v_bits], target_bits[:, :, :v_bits])
+            
+            # Removed SOFT-BOUNDARY REGULARIZATION (Let the model reach the corners)
+        else:
+            loss = criterion(logits.view(-1, task.vocab_size), y.view(-1))
+            
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 0.1) # Aggressive clipping for stability
         optimizer.step()
+        scheduler.step()
         
         loss_val = loss.item()
-        scheduler.step(loss_val)
         
         # Exponential moving average for reporting
         normalized_loss = 0.95 * normalized_loss + 0.05 * loss_val
-        if i % 10 == 0:
-             pbar.set_postfix({'loss': f"{normalized_loss:.4f}", 'lr': f"{optimizer.param_groups[0]['lr']:.5f}"})
-        
+        if is_binary:
+            # Bit Accuracy (Binary check: logit > 0)
+            # We ONLY check the relevant bits for the task vocab
+            v_bits = int(np.ceil(np.log2(task.vocab_size)))
+            v_bits = max(1, v_bits)
+            
+            preds_bits_v = (logits[:, :, :v_bits] > 0.0).float()
+            target_bits_v = target_bits[:, :, :v_bits]
+            bit_acc = (preds_bits_v == target_bits_v).float().mean()
+            
+            # Token Accuracy (full ID check from bits)
+            # For parity (vocab 2), bit 0 is enough.
+            preds_parity = (logits[:, :, 0] > 0.0).long()
+            token_acc = (preds_parity == y).float().mean()
+            
+            pbar.set_postfix({
+                'loss': f"{normalized_loss:.4f}", 
+                'bit_acc': f"{bit_acc*100:.1f}%",
+                'parity': f"{token_acc*100:.1f}%",
+                'lr': f"{optimizer.param_groups[0]['lr']:.5f}"
+            })
+        else:
+            pbar.set_postfix({'loss': f"{normalized_loss:.4f}", 'lr': f"{optimizer.param_groups[0]['lr']:.5f}"})
         loss_history.append(loss_val)
         
         # Strictly solved threshold
@@ -125,7 +185,31 @@ def evaluate_length_generalization(model, task_cls, train_len=20, lengths=[20, 5
             memories.append(-1.0)
             continue
         
-        preds = torch.argmax(logits, dim=-1)
+        if logits.shape[-1] != task.vocab_size:
+            # Binary/Implicit Readout Mode: Decode bits back to token IDs
+            # We assume the first N bits represent the ID (up to vocab_size)
+            # For parity (vocab 2), we only check the first bit.
+            # In a general case, we would do a nearest-neighbor search.
+            if task.vocab_size == 2:
+                 # Boolean threshold at 0.0 (Bits are mapped -1, 1)
+                 preds = (logits[:, :, 0] > 0.0).long()
+            else:
+                 # Nearest-neighbor bit decoding (Simplistic for benchmark)
+                 # Map logits to bits
+                 pred_bits = (logits > 0.0).float() # [B, L, coord_dim]
+                 
+                 # Compute all possible vocab bits
+                 all_ids = torch.arange(task.vocab_size).to(device)
+                 mask = 2**torch.arange(logits.shape[-1]).to(device)
+                 # [V, D]
+                 vocab_bits = (all_ids.unsqueeze(-1) & mask) > 0
+                 vocab_bits = vocab_bits.float()
+                 
+                 # L2 distance: [B, L, 1, D] - [1, 1, V, D]
+                 dists = torch.cdist(pred_bits.view(-1, logits.shape[-1]), vocab_bits).view(logits.shape[0], logits.shape[1], -1)
+                 preds = torch.argmin(dists, dim=-1)
+        else:
+            preds = torch.argmax(logits, dim=-1)
         
         # Check accuracy of the LAST 10% of tokens
         check_len = max(1, length // 10)
@@ -144,32 +228,37 @@ def run_benchmark_v3():
     print(f"Goal: Demonstrate O(1) State Tracking vs Attention's weakness.")
     
     # 1. Models
-    # Dimensions need to be sufficient but not huge.
-    dim = 64
-    depth = 2
-    heads = 4
+    # Dimensions need to be sufficient but not huge for a benchmark.
+    dim = 128
+    depth = 6 # Deepen for XOR state chain tracking
+    heads = 4 
     vocab = 2 # 0, 1
     
-    # Manifold (The Challenger - Cognitive Engine)
+    # Manifold (The Challenger - Hybrid Mode for stability test)
     gfn = Manifold(
-        vocab_size=vocab, dim=dim, depth=depth, heads=heads, rank=16,
-        use_scan=False, # Sequential for stability
+        vocab_size=vocab, dim=dim, depth=depth, heads=heads,
+        use_scan=False, 
+        integrator_type='leapfrog', # Symplectic for energy conservation
         physics_config={
+            'embedding': {'type': 'functional', 'mode': 'binary', 'coord_dim': 16},
+            'readout': {'type': 'standard'}, # ABLATION: Standard Softmax Head
             'active_inference': {'enabled': True, 'reactive_curvature': {'enabled': True, 'plasticity': 0.05}},
-            'hyper_curvature': {'enabled': True} # Cognitive Engine
+            'hyper_curvature': {'enabled': True},
+            'stability': {'base_dt': 0.3, 'damping': 0.05, 'residual_scale': 0.5} 
         }
     ).to(device)
     
     # MicroGPT (The Champion)
     gpt = MicroGPT(
-        vocab_size=vocab, dim=dim, depth=depth, heads=heads, max_len=1000
+        vocab_size=vocab, dim=dim, depth=4, heads=heads, max_len=1000
     ).to(device) 
     
     # 2. Train on SHORT sequences (L=20)
     train_task = ParityTask(length=20)
     
-    print("\n--- Training Phase (Target: Loss < 0.005) ---")
-    gfn_loss = train_until_convergence(gfn, train_task, max_steps=2000, lr=5e-3, device=device)
+    print(f"\n--- Training Phase (Target: Loss < 0.005) ---")
+    print(f"Manifold Model: {dim} dim, {depth} layers, 16-bit binary readout")
+    gfn_loss = train_until_convergence(gfn, train_task, max_steps=1500, lr=5e-3, device=device)
     gpt_loss = train_until_convergence(gpt, train_task, max_steps=4000, lr=1e-3, device=device) # GPT needs more care/steps sometimes
     
     # 3. Test on LONG sequences

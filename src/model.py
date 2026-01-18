@@ -50,8 +50,9 @@ class Manifold(nn.Module):
         elif emb_type == 'functional':
             from .embeddings import FunctionalEmbedding
             coord_dim = emb_cfg.get('coord_dim', 16)
-            print(f"[*] Using FUNCTIONAL Neural Embeddings (Pure Math, coord_dim={coord_dim})")
-            self.embedding = FunctionalEmbedding(vocab_size, dim, coord_dim=coord_dim)
+            mode = emb_cfg.get('mode', 'binary') # Default to binary now
+            print(f"[*] Using FUNCTIONAL Neural Embeddings ({mode.upper()}, coord_dim={coord_dim})")
+            self.embedding = FunctionalEmbedding(vocab_size, dim, coord_dim=coord_dim, mode=mode)
         else:
             self.embedding = nn.Embedding(vocab_size, dim)
         
@@ -78,16 +79,15 @@ class Manifold(nn.Module):
         
         self.readout_norm = nn.LayerNorm(dim)
         
-        if readout_type == 'implicit':
+        if readout_type == 'implicit' or readout_type == 'binary':
              coord_dim = emb_cfg.get('coord_dim', 16) 
-             # Linear Readout is too weak for Sinusoidal Coords!
-             # Use a small MLP to decoding the thought vector into the coordinate
+             # MLP Decoder: Balanced for coordinate regression
              self.readout = nn.Sequential(
                  nn.Linear(dim, dim),
                  nn.GELU(),
                  nn.Linear(dim, coord_dim)
              )
-             print(f"[*] Using IMPLICIT READOUT (MLP -> {coord_dim}-d coords)")
+             print(f"[*] Using IMPLICIT READOUT ({readout_type} MLP -> {coord_dim}-d)")
         else:
              self.readout = nn.Linear(dim, vocab_size)
         
@@ -200,11 +200,13 @@ class Manifold(nn.Module):
                 for layer in self.layers:
                     # Update state
                     x, v, context, layer_christoffels = layer(x, v, force, context)
-                    # We store christoffels for the LAST token of the batch for regularization?
-                    # Or all tokens? Usually loss is computed per token.
-                    # To avoid memory explosion, we'll only return the current token's christoffels
-                    # to be used in the current step calculation if needed.
-                    all_christoffels = layer_christoffels # Keep last layer or all? Let's say all.
+                    all_christoffels = layer_christoffels 
+                
+                # unit-norm projection to prevent momentum buildup 
+                v = v / (torch.norm(v, dim=-1, keepdim=True) + 1.0)
+                
+                # Bounded Position
+                x = torch.clamp(x, -20.0, 20.0) 
                 
                 # Readout: project position to vocabulary logits
                 out = self.readout_norm(x)

@@ -22,7 +22,7 @@ from mpl_toolkits.mplot3d import proj3d
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src import GFN
+from src.model import Manifold
 try:
     from tests.benchmarks.baselines import MicroGPT
 except ImportError:
@@ -114,7 +114,10 @@ def create_trajectory_comparison(checkpoint_path=None):
     vocab_size = 20
     dim = 512
     
-    gfn_model = GFN(vocab_size=vocab_size, dim=dim, depth=12, rank=16).to(device)
+    gfn_model = Manifold(
+        vocab_size=vocab_size, dim=dim, depth=12,
+        physics_config={'embedding': {'type': 'functional', 'mode': 'binary', 'coord_dim': 16}}
+    ).to(device)
     gpt_model = MicroGPT(vocab_size=vocab_size, dim=dim, depth=12, heads=4).to(device)
     
     if checkpoint_path and os.path.exists(checkpoint_path):

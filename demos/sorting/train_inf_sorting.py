@@ -16,7 +16,7 @@ sys.path.append(str(PROJECT_ROOT))
 
 from src.model import Manifold
 from src.optim import RiemannianAdam
-from src.embeddings import FunctionalEmbedding # Need this for coordinate generation
+from src.embeddings import FunctionalEmbedding 
 
 class CausalSortingDataset(Dataset):
     def __init__(self, num_samples, seq_len, vocab_size=100):
@@ -43,22 +43,13 @@ class CausalSortingDataset(Dataset):
         
         return src, tgt
 
-def get_functional_coords(token_ids, coord_dim, device):
+def get_binary_coords(token_ids, coord_dim, device):
     """
-    Reverse-engineers the FunctionalEmbedding logic to get the Target Coordinates.
-    Same logic as src/embeddings.py FunctionalEmbedding.forward
+    Map ID -> Bits {0, 1} flat.
     """
-    # 1. Frequency Initialization (Must match Manual Init)
-    # We should ideally expose this from the model, but for now we replicate logic
-    # freqs = exp(-log(10000) * i / d)
-    freqs = torch.exp(torch.arange(0, coord_dim, 2).float() * -(torch.log(torch.tensor(10000.0)) / coord_dim)).to(device)
-    
-    # 2. Compute Coords
-    x = token_ids.unsqueeze(-1).float()
-    args = x * freqs
-    coords = torch.cat([torch.sin(args), torch.cos(args)], dim=-1)
-    
-    return coords
+    mask = 2**torch.arange(coord_dim).to(device)
+    bits = (token_ids.unsqueeze(-1) & mask) > 0
+    return bits.float() # {0.0, 1.0}
 
 def main():
     parser = argparse.ArgumentParser()
@@ -72,7 +63,7 @@ def main():
     print(f"Using device: {device}")
     
     vocab_range = config['task']['vocab']
-    real_vocab_size = vocab_range + 2 # + SEP, EOS
+    real_vocab_size = vocab_range + 2 
     config['model']['vocab_size'] = real_vocab_size
     
     # Dataset
@@ -81,7 +72,14 @@ def main():
     train_loader = DataLoader(train_ds, batch_size=config['training']['batch_size'], shuffle=True, num_workers=0)
     val_loader = DataLoader(val_ds, batch_size=config['training']['batch_size'], num_workers=0)
     
-    # Model
+    # Initialize Model with Binary Config
+    config['physics']['embedding']['mode'] = 'binary'
+    config['physics']['readout']['type'] = 'binary' # Using binary readout
+    coord_dim = config['physics']['embedding']['coord_dim'] # 16 bits -> 65k vocab
+    
+    # Needs enough bits?
+    # 2^16 = 65536. Vocab is ~102. Safe.
+    
     model = Manifold(
         vocab_size=config['model']['vocab_size'],
         dim=config['model']['dim'],
@@ -93,35 +91,32 @@ def main():
     ).to(device)
     
     # Detect Infinite Mode
-    is_infinite = (config['physics']['readout']['type'] == 'implicit')
-    coord_dim = config['physics']['embedding']['coord_dim']
+    is_infinite = True # forcing it for this script
     
-    if is_infinite:
-        print(f"\n[*] INFINITE MODE DETECTED")
-        print(f"    - Input: Functional (O(1))")
-        print(f"    - Output: Implicit Coordinate Regression (O(1))")
-        print(f"    - Coord Dim: {coord_dim}")
+    print(f"\n[*] INFINITE MODE (BINARY) DETECTED")
+    print(f"    - Input: Binary Functional (O(1))")
+    print(f"    - Output: Binary Multi-Label Classification")
+    print(f"    - Coord Dim: {coord_dim}")
         
     # Params
     total = sum(p.numel() for p in model.parameters())
     print(f"Total Params: {total/1e6:.2f}M\n")
     
     optimizer = torch.optim.AdamW(model.parameters(), lr=config['training']['lr'], weight_decay=1e-4)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config['training']['epochs'])
+    # OneCycleLR: Super-Convergence Scheduler
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        optimizer, 
+        max_lr=config['training']['lr'] * 10, # Aggressive peak
+        steps_per_epoch=len(train_loader),
+        epochs=config['training']['epochs'],
+        pct_start=0.3
+    )
     
-    if is_infinite:
-        criterion = nn.MSELoss()
-    else:
-        criterion = nn.CrossEntropyLoss()
-        
+    # Loss: Binary Cross Entropy
+    criterion = nn.BCEWithLogitsLoss() 
+    
     best_acc = 0.0
     
-    # Pre-compute valid coordinate vectors for KNN decoding (Validation only)
-    if is_infinite:
-        print("[*] Pre-computing vocab coordinates for validation decoding...")
-        all_ids = torch.arange(real_vocab_size).to(device)
-        vocab_coords = get_functional_coords(all_ids, coord_dim, device) # [Vocab, Coord]
-        
     for epoch in range(config['training']['epochs']):
         model.train()
         total_loss = 0
@@ -131,69 +126,73 @@ def main():
             src, tgt = src.to(device), tgt.to(device)
             optimizer.zero_grad()
             
-            # Forward
-            # Logits are [Batch, Seq, OutDim]
-            # If Infinite: OutDim = CoordDim
-            # If Standard: OutDim = VocabSize
+            # Forward -> Logits [B, L, Bits]
             pred, _, _ = model(src)
             
-            if is_infinite:
-                # Target: Coordinates of Tgt IDs
-                tgt_coords = get_functional_coords(tgt, coord_dim, device)
-                loss = criterion(pred, tgt_coords)
-            else:
-                loss = criterion(pred.reshape(-1, real_vocab_size), tgt.reshape(-1))
+            # Target -> Bits {0, 1} [B, L, Bits]
+            tgt_bits = get_binary_coords(tgt, coord_dim, device)
+            
+            loss = criterion(pred, tgt_bits)
             
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), config['training']['grad_clip'])
             optimizer.step()
+            scheduler.step() # OneCycleLR steps PER BATCH
             total_loss += loss.item()
             pbar.set_postfix({'loss': f"{loss.item():.4f}"})
             
         # Validation
         model.eval()
-        correct = 0
-        total_samples = 0
+        correct_bits = 0
+        total_bits = 0
+        correct_tokens = 0
+        total_tokens = 0
+        correct_seqs = 0
+        total_seqs = 0
         
         with torch.no_grad():
             for src, tgt in val_loader:
                 src, tgt = src.to(device), tgt.to(device)
                 pred, _, _ = model(src)
                 
-                if is_infinite:
-                    # Decode Coords -> IDs via Nearest Neighbor
-                    # Pred: [B, L, C]
-                    # Vocab: [V, C]
-                    # Dist: [B, L, V]
-                    # We can use cdist or simple dot product if normalized? They are Sins, so normalized-ish.
-                    # Let's use negative L2 distance
-                    
-                    B, L, C = pred.shape
-                    flat_pred = pred.view(-1, C) # [B*L, C]
-                    
-                    # Compute distances to all vocab words
-                    dists = torch.cdist(flat_pred, vocab_coords) # [B*L, V]
-                    flat_ids = torch.argmin(dists, dim=-1) # [B*L] Best match ID
-                    
-                    decoded_ids = flat_ids.view(B, L)
-                    preds = decoded_ids
-                else:
-                    preds = torch.argmax(pred, dim=-1)
-                    
                 # Check Sorted Part (Logic reuse)
                 seq_len = config['task']['seq_len']
                 start_check = seq_len 
                 
-                sorted_preds = preds[:, start_check : start_check + seq_len]
-                sorted_tgts = tgt[:, start_check : start_check + seq_len]
+                # 1. Bit Accuracy
+                # Pred: [B, L, Bits] (Logits)
+                # Tgt: [B, L, Bits] {0,1}
+                tgt_bits = get_binary_coords(tgt, coord_dim, device)
                 
-                row_matches = torch.all(sorted_preds == sorted_tgts, dim=1)
-                correct += row_matches.sum().item()
-                total_samples += src.size(0)
+                # Focus only on the sorted part for metrics
+                pred_sorted_logits = pred[:, start_check : start_check + seq_len]
+                tgt_sorted_bits = tgt_bits[:, start_check : start_check + seq_len]
                 
-        val_acc = correct / total_samples
+                # Fix: Logits > 0.0 is equivalent to Sigmoid > 0.5
+                pred_bits = (pred_sorted_logits > 0.0).float() 
+                
+                correct_bits += (pred_bits == tgt_sorted_bits).sum().item()
+                total_bits += tgt_sorted_bits.numel()
+                
+                # 2. Token Accuracy (All bits match)
+                # [B, L, Bits] -> [B, L] (All bits match)
+                token_matches = torch.all(pred_bits == tgt_sorted_bits, dim=-1)
+                correct_tokens += token_matches.sum().item()
+                total_tokens += token_matches.numel()
+
+                # 3. Sequence Accuracy (All tokens match)
+                # [B, L] -> [B]
+                seq_matches = torch.all(token_matches, dim=-1)
+                correct_seqs += seq_matches.sum().item()
+                total_seqs += src.size(0)
+        
+        bit_acc = correct_bits / total_bits
+        token_acc = correct_tokens / total_tokens
+        seq_acc = correct_seqs / total_seqs
+        val_acc = bit_acc  # Track bit accuracy for checkpointing
+        
         curr_lr = scheduler.get_last_lr()[0]
-        print(f"Epoch {epoch+1} | Loss: {total_loss/len(train_loader):.4f} | Val Acc: {val_acc*100:.2f}% | LR: {curr_lr:.2e}")
+        print(f"Epoch {epoch+1} | Loss: {total_loss/len(train_loader):.4f} | Bit Acc: {bit_acc*100:.2f}% | Tok Acc: {token_acc*100:.2f}% | Seq Acc: {seq_acc*100:.2f}% | LR: {curr_lr:.2e}")
         
         scheduler.step()
         if val_acc > best_acc:

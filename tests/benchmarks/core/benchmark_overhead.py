@@ -68,13 +68,21 @@ def get_physics_configs():
 
 def measure_overhead(config_name, physics_config, device, batch_size=16, seq_len=128, warmup=3, runs=10):
     """Measure VRAM and throughput for a configuration."""
+    # Merge with default binary functional embedding for O(1) proof
+    base_config = {'embedding': {'type': 'functional', 'mode': 'binary', 'coord_dim': 16}}
+    if physics_config:
+        # Shallow merge
+        merged_config = {**base_config, **physics_config}
+    else:
+        merged_config = base_config
+
     model = Manifold(
         vocab_size=64,
         dim=256,
         depth=6,
         heads=4,
         integrator_type='heun',
-        physics_config=physics_config
+        physics_config=merged_config
     ).to(device).eval()
     
     params = sum(p.numel() for p in model.parameters())

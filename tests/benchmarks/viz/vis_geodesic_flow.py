@@ -24,7 +24,8 @@ def plot_geodesic_flow(checkpoint_path, text="123 + 456 = 579"):
     token_to_id = {c: i for i, c in enumerate(vocab)}
     input_ids = torch.tensor([token_to_id[c] for c in text]).unsqueeze(0).to(device)
     
-    model = Manifold(vocab_size=len(vocab), dim=512, depth=8, heads=8).to(device)
+    physics_config = {'embedding': {'type': 'functional', 'mode': 'binary', 'coord_dim': 16}}
+    model = Manifold(vocab_size=len(vocab), dim=512, depth=8, heads=8, physics_config=physics_config).to(device)
     if os.path.exists(checkpoint_path):
         ckpt = torch.load(checkpoint_path, map_location=device)
         try:

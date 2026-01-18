@@ -53,7 +53,12 @@ class LowRankChristoffel(nn.Module):
         # PyTorch Implementation
         # v: [batch, dim]
         proj = torch.matmul(v, self.U) # [batch, rank]
-        sq = proj * proj # [batch, rank]
+        
+        # Soft-Saturation: Curvature scales quadratically near origin, 
+        # but linearly for high momentum to prevent energy explosion.
+        # sq = proj^2 / (1 + |proj|)
+        sq = (proj * proj) / (1.0 + torch.abs(proj))
+        
         out = torch.matmul(sq, self.W.t()) # [batch, dim]
         
         # Dynamic Curvature Modulation (Gravity Wells)
@@ -507,8 +512,9 @@ class HyperChristoffel(LowRankChristoffel):
         # b) Modulate projection by Context (Hyper-U)
         proj_dynamic = proj_static * g_u # [batch, rank]
         
-        # c) Square (Energy in basis)
-        sq_dynamic = proj_dynamic * proj_dynamic # [batch, rank]
+        # c) Soft-Saturation (to prevent energy explosion)
+        # Instead of pure quadratic sq_dynamic = proj_dynamic * proj_dynamic
+        sq_dynamic = (proj_dynamic * proj_dynamic) / (1.0 + torch.abs(proj_dynamic))
         
         # d) Modulate Reconstruction by Context (Hyper-W)
         sq_modulated = sq_dynamic * g_w # [batch, rank]

@@ -18,10 +18,15 @@ def visualize_active_inference_distortion(checkpoint_path):
     
     # 1. Setup
     vocab = "0123456789+-*= "
-    model = Manifold(vocab_size=len(vocab), dim=512, depth=1, heads=1).to(device)
+    physics_config = {
+        'embedding': {'type': 'functional', 'mode': 'binary', 'coord_dim': 16},
+        'active_inference': {'enabled': True}
+    }
+    model = Manifold(vocab_size=len(vocab), dim=512, depth=1, heads=1, physics_config=physics_config).to(device)
     if os.path.exists(checkpoint_path):
         ckpt = torch.load(checkpoint_path, map_location=device)
-        model.load_state_dict(ckpt['model_state_dict'], strict=False)
+        state_dict = ckpt['model_state_dict'] if 'model_state_dict' in ckpt else ckpt
+        model.load_state_dict(state_dict, strict=False)
     model.eval()
 
     layer = model.layers[0]
@@ -53,20 +58,14 @@ def visualize_active_inference_distortion(checkpoint_path):
             # Make V_w/v_w such that the singularity is triggered near origin
             v_w = torch.ones(512).to(device) # High potential everywhere for demo
             
-            for i in range(grid_size):
                 for j in range(grid_size):
                     v_sample = torch.zeros(1, 512).to(device)
                     v_sample[0, 0] = X[i, j]
                     v_sample[0, 1] = Y[i, j]
                     
-                    # Manual call to Christoffel with varied active params
-                    gamma = manifold_macro.christoffels[0](
-                        v_sample, 
-                        x=x_sim, 
-                        v_w=v_w, 
-                        plasticity=plast, 
-                        sing_strength=sing
-                    )
+                    # Ensure we pass the expected inputs to the Christoffel network
+                    # Note: Physical modulation depends on layer implementation
+                    gamma = manifold_macro.christoffels[0](v_sample, x=x_sim)
                     magnitudes[i, j] = torch.norm(gamma).item()
             
             im = axes[ax_idx].imshow(magnitudes, extent=[-3, 3, -3, 3], origin='lower', cmap='magma')

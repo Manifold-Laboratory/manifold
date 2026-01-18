@@ -21,12 +21,14 @@ from src.model import Manifold
 
 def measure_scaling(dim, depth, heads, device, batch_size=16, seq_len=128):
     """Measure metrics for a model configuration."""
+    physics_config = {'embedding': {'type': 'functional', 'mode': 'binary', 'coord_dim': 16}}
     model = Manifold(
         vocab_size=64,
         dim=dim,
         depth=depth,
         heads=heads,
-        integrator_type='heun'
+        integrator_type='heun',
+        physics_config=physics_config
     ).to(device).eval()
     
     params = sum(p.numel() for p in model.parameters())

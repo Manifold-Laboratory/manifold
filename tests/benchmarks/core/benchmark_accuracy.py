@@ -67,8 +67,22 @@ def evaluate_accuracy(checkpoint_path, test_type="math_oracle"):
                 if isinstance(logits, tuple):
                     logits = logits[0]
                 
-                # Check prediction for sequence (shifted)
-                pred_ids = torch.argmax(logits[:, :-1, :], dim=-1)
+                # Adaptive Decoding (Symmetric Manifold Logic)
+                vocab_size_out = logits.shape[-1]
+                if vocab_size_out != len(vocab) and vocab_size_out == 16:
+                     # Coordinate regression on the hypercube
+                     pred_coords = logits # Already using Tanh
+                     all_ids = torch.arange(len(vocab)).to(device)
+                     mask = 2**torch.arange(vocab_size_out).to(device)
+                     vocab_bits = (all_ids.unsqueeze(-1) & mask) > 0.0
+                     vocab_coords = vocab_bits.float() * 2 - 1
+                     
+                     # L2 distance on the hypercube
+                     dists = torch.cdist(pred_coords[:, :-1].reshape(-1, vocab_size_out), vocab_coords)
+                     pred_ids = torch.argmin(dists, dim=-1).view(ids[:, :-1].shape)
+                else:
+                     pred_ids = torch.argmax(logits[:, :-1, :], dim=-1)
+                
                 target_ids = ids[:, 1:]
                 
                 match = (pred_ids == target_ids).all().item()
@@ -91,7 +105,7 @@ def evaluate_accuracy(checkpoint_path, test_type="math_oracle"):
     print("=" * 60)
 
 if __name__ == "__main__":
-    ckpt = "checkpoints\medium_fast\v0.5\epoch_4.pt"
+    ckpt = r"checkpoints\medium_fast\v0.5\epoch_4.pt"
     if len(sys.argv) > 1:
         ckpt = sys.argv[1]
     evaluate_accuracy(ckpt)
