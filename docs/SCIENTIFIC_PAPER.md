@@ -1,7 +1,7 @@
 # MANIFOLD: A Symplectic Cognitive Engine with Mixture of Geometric Experts
 
 **Authors:**  
-Joaquin (Lead Architect) & Gemini (Cognitive Systems Engineer)  
+Joaquin (Lead Architect)
 **Affiliation:** MANIFOLD Research Laboratory  
 **Date:** January 17, 2026  
 **Abstract:**  
