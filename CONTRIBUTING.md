@@ -1,6 +1,6 @@
-# Contributing to GFN
+# Contributing to GFN | Manifold
 
-Thank you for your interest in contributing to Geodesic Flow Networks!
+Thank you for your interest in contributing to Geodesic Flow Networks (Manifold)!
 
 ## How to Contribute
 

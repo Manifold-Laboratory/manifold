@@ -14,7 +14,6 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 # Import Models
-# Import Models
 from src.model import Manifold
 from src.optim import RiemannianAdam
 from tests.benchmarks.baselines import MicroGPT
@@ -51,15 +50,19 @@ def train_until_convergence(model, task, max_steps=1500, lr=3e-4, device='cuda',
     else:
         optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4) # Standard for GPT
 
-    # Start from L=2 (Basic XOR) to ensure mastery before scaling
-    current_length = 2
+    # Start from L=20 (Basic XOR) to ensure mastery before scaling
+    current_length = 20
     
     # OneCycleLR is faster and more stable for logical tasks
     scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=lr, total_steps=max_steps, pct_start=0.2)
     model.train()
     
     # Adaptive Loss Selection
-    readout_type = model.physics_config.get('readout', {}).get('type', 'standard')
+    if hasattr(model, 'physics_config'):
+        readout_type = model.physics_config.get('readout', {}).get('type', 'standard')
+    else:
+        readout_type = 'standard'
+        
     is_binary = (readout_type == 'binary' or readout_type == 'implicit')
     
     if is_binary:
@@ -81,7 +84,7 @@ def train_until_convergence(model, task, max_steps=1500, lr=3e-4, device='cuda',
     normalized_loss = 1.0
     
     # Fixed Length Training (OOD Benchmark Standard)
-    current_length = 20 
+    current_length = 20
     
     for i in pbar:
         # Standard OOD Setup: Train on fixed SHORT length, Test on LONG
@@ -120,7 +123,8 @@ def train_until_convergence(model, task, max_steps=1500, lr=3e-4, device='cuda',
             loss = criterion(logits.view(-1, task.vocab_size), y.view(-1))
             
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 0.1)
+        # Tighten Gradient Clipping (0.1 -> 0.05) to prevent optimization spikes
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 0.05)
         optimizer.step()
         scheduler.step()
         
@@ -157,16 +161,19 @@ def train_until_convergence(model, task, max_steps=1500, lr=3e-4, device='cuda',
         loss_history.append(loss_val)
         
         # Strictly solved threshold
-        # Check both Loss AND Accuracy
-        if (normalized_loss < 0.005 or static_acc > 0.995) and i > 200:
+        # User requested: Stop ONLY when loss is low enough (don't stop just for accuracy)
+        # Target: Loss < 0.005 (implies perfect mastery beyond just thresholding)
+        if normalized_loss < 0.005 and i > 200:
             print(f"🚀 Converged at step {i} (Loss: {normalized_loss:.5f}, Acc: {static_acc*100:.1f}%)")
-            # Save the winning state to ensure generalization test uses the best version
-            torch.save(model.state_dict(), "best_manifold_parity.pth")
+            # Save correct best model
+            torch.save(model.state_dict(), f"best_{model.__class__.__name__}_parity.pth")
             break
             
     # Load best weights if we converged (or just return current if ran out of steps)
-    if os.path.exists("best_manifold_parity.pth"):
-         model.load_state_dict(torch.load("best_manifold_parity.pth"))
+    ckpt_path = f"best_{model.__class__.__name__}_parity.pth"
+    if os.path.exists(ckpt_path):
+         model.load_state_dict(torch.load(ckpt_path))
+         print(f"Loaded best weights from {ckpt_path}")
          
     return loss_history
 
@@ -189,15 +196,36 @@ def evaluate_length_generalization(model, task_cls, train_len=20, lengths=[20, 4
         try:
             with torch.no_grad():
                 # Define closure for memory measurement
-                def forward_pass():
+                def forward_pass_streaming():
+                    # STREAMING INFERENCE (O(1) Verification)
+                    # We process the sequence token-by-token without storing the full history of logits
+                    # This proves that the INTERNAL STATE is constant size.
+                    batch_size, seq_len = x.shape
+                    state = None
+                    last_logits = None
+                    
+                    # Manual loop to avoid allocating [B, L, V] output tensor
+                    for t in range(seq_len):
+                        input_t = x[:, t:t+1]
+                        step_logits, state, _ = model(input_t, state=state)
+                        if t == seq_len - 1:
+                            last_logits = step_logits
+                    return last_logits
+
+                def forward_pass_standard():
                     return model(x)
-                
-                # Measure memory
-                peak_mem = measure_peak_memory(model, forward_pass)
-                
-                # Get actual result
-                logits = forward_pass()
-                if isinstance(logits, tuple): logits = logits[0]
+
+                if isinstance(model, Manifold):
+                     # Measure O(1) memory
+                     peak_mem = measure_peak_memory(model, forward_pass_streaming)
+                     # Get result (just last token is enough for "did it track state to the end?")
+                     logits = forward_pass_streaming()
+                     if isinstance(logits, tuple): logits = logits[0]
+                else:
+                     # Measure baseline memory
+                     peak_mem = measure_peak_memory(model, forward_pass_standard)
+                     logits = forward_pass_standard()
+                     if isinstance(logits, tuple): logits = logits[0]
                 
         except RuntimeError: # OOM
             print(f"  Len {length}: Failed (OOM)")
@@ -210,6 +238,18 @@ def evaluate_length_generalization(model, task_cls, train_len=20, lengths=[20, 4
             memories.append(-1.0)
             continue
         
+        # Calculate Accuracy
+        # If streaming, we only have the last logit [B, 1, V]
+        # We compare against the last target
+        
+        if logits.shape[1] != length:
+             # We have a strict subset (likely just the last one)
+             # Slice target to match
+             y_target = y[:, -logits.shape[1]:]
+        else:
+             # We have full sequence
+             y_target = y
+            
         if logits.shape[-1] != task.vocab_size:
             # Binary/Implicit Readout Mode: Decode bits back to token IDs
             # We assume the first N bits represent the ID (up to vocab_size)
@@ -236,9 +276,12 @@ def evaluate_length_generalization(model, task_cls, train_len=20, lengths=[20, 4
         else:
             preds = torch.argmax(logits, dim=-1)
         
-        # Check accuracy of the LAST 10% of tokens
-        check_len = max(1, length // 10)
-        correct = (preds[:, -check_len:] == y[:, -check_len:]).float().mean()
+        # Check accuracy of the LAST 10% of tokens (or just the available ones)
+        # We use y_target which is already aligned
+        valid_len = preds.shape[1]
+        check_len = max(1, valid_len // 10) # check last 10% of what we have
+        
+        correct = (preds[:, -check_len:] == y_target[:, -check_len:]).float().mean()
         
         acc = correct.item()
         accuracies.append(acc)
@@ -252,8 +295,6 @@ def run_benchmark_v3():
     print(f"🥊 GFN vs Transformer: The 'State Tracking' Rumble (V3 - Parity)")
     print(f"Goal: Demonstrate O(1) State Tracking vs Attention's weakness.")
     
-    # 1. Models
-    # Dimensions need to be sufficient but not huge for a benchmark.
     # 1. Models
     # Dimensions need to be sufficient but not huge for a benchmark.
     dim = 128 # Reverted to 128 (Capacity is not the issue, Dynamics are)
@@ -280,19 +321,20 @@ def run_benchmark_v3():
         vocab_size=vocab, dim=dim, depth=4, heads=heads, max_len=1000
     ).to(device) 
     
-    # 2. Train on SHORT sequences (L=20)
-    train_task = ParityTask(length=20)
+    # 2. Train on SHORT sequences (L=2)
+    train_task = ParityTask(length=2)
     
     print(f"\n--- Training Phase (Target: Loss < 0.005) ---")
     print(f"Manifold Model: {dim} dim, {depth} layers, 16-bit binary readout")
-    gfn_loss = train_until_convergence(gfn, train_task, max_steps=1500, lr=3e-4, device=device)
+    # Reduced LR to 1e-4 to prevent collapse near convergence (Handling "Aggressive Penalization")
+    gfn_loss = train_until_convergence(gfn, train_task, max_steps=1500, lr=1e-4, device=device)
     gpt_loss = train_until_convergence(gpt, train_task, max_steps=4000, lr=1e-3, device=device) # GPT needs more care/steps sometimes
     
     # 3. Test on LONG sequences
     lengths = [20, 50, 100, 200, 400, 500, 1000, 10000]
     
-    gfn_acc, gfn_mem = evaluate_length_generalization(gfn, ParityTask, train_len=20, lengths=lengths, device=device)
-    gpt_acc, gpt_mem = evaluate_length_generalization(gpt, ParityTask, train_len=20, lengths=lengths, device=device)
+    gfn_acc, gfn_mem = evaluate_length_generalization(gfn, ParityTask, train_len=2, lengths=lengths, device=device)
+    gpt_acc, gpt_mem = evaluate_length_generalization(gpt, ParityTask, train_len=2, lengths=lengths, device=device)
     
     # 4. Visualization
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))

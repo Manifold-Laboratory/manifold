@@ -1,82 +1,103 @@
-# Cognitive Dynamics Engine
+# MANIFOLD Physics & Mathematics
 
-> The theoretical framework behind Manifold's active inference capabilities.
+**Version:** 2.5.0  
+**Last Updated:** January 18, 2026
 
----
-
-## 1. Overview
-
-Manifold diverges from traditional deep learning by treating the latent space not as a static vector space, but as a **dynamic Riemannian manifold** ($M, g$). The geometry of this manifold evolves in real-time, reacting to the semantic content of the sequence. This forms a closed-loop "Cognitive Physics" system.
-
-## 2. Dynamic Curvature Field
-
-The core innovation is the **Reactive Metric Tensor** $g_{\mu\nu}(x, v)$, which governs the "difficulty" of traversing the thought space.
-
-### 2.1 Reactive Plasticity (Uncertainty Regulation)
-
-When the model encounters ambiguity or high information density (high kinetic energy in the latent flow), the manifold stiffens.
-
-$$
-\Gamma^k_{ij} \leftarrow \Gamma^k_{ij} \cdot (1 + \alpha \tanh(\|v\|^2))
-$$
-
-- **Effect**: High velocity (confusion) $\to$ High curvature $\to$ Increased effective path length.
-- **Cognitive Analog**: "Thinking harder" about difficult concepts by slowing down the subjective time-flow.
-
-### 2.2 Logical Singularities (Semantic Anchoring)
-
-Certainty in decision-making is modeled as a gravitational collapse. When the semantic potential $V(x)$ exceeds a critical threshold, a **Singularity** forms.
-
-- **Mechanism**: A localized region of near-infinite curvature acts as an attractor.
-- **Effect**: The geodesic trajectory is forcibly captured by the attractor, effectively "locking in" a logical decision.
-- **Stability**: Unlike standard RNN attractors, these are symplectic and energy-conserving, preventing gradient explosion.
-
-## 3. Autonomous Geometric Attention (Time Dilation)
-
-In standard Transformers, every token is processed for a fixed computational depth. Manifold introduces **Adaptive Time-Integration**.
-
-Each processing head $h$ independently predicts a time-dilation factor $\Delta t_h$:
-
-$$
-\Delta t_h = \sigma(W \cdot [x, v, F]) \cdot \Delta t_{base}
-$$
-
-- **Variable Compute**: The model can spend "more time" (integrate longer) on complex tokens and "less time" (skip) on trivial ones.
-- **Multi-Scale Flow**: Different heads can operate at different timescales, allowing simultaneous processing of syntax (fast) and semantics (slow).
-
-## 4. Recursive Geodesics (Metacognition)
-
-Layer interaction in Manifold is modeled as a hierarchical control system.
-
-$$
-F_{layer \ l+1} = F_{ext} + \mathcal{P}(\text{Context}_{l})
-$$
-
-The "Context" from layer $l$ (representing its curvature state) is projected as an external *force* into layer $l+1$. This allows earlier layers to "steer" deeper layers, correcting trajectories before they diverge.
+Mathematical foundations of the MANIFOLD architecture, derived from differential geometry and Hamiltonian mechanics.
 
 ---
 
-## 5. Cognitive Thermodynamics
+## Geodesic Equation
 
-To drive proactive intelligence, Manifold incorporates the **Second Law of Cognition**: Entropy-Driven Curiosity.
+**Core Principle**: State evolution follows geodesics (shortest paths) on a Riemannian manifold.
 
-### 5.1 Maximum Entropy Production
-The training action incorporates a term to maximize the differential entropy $S$ of the latent velocity distribution:
+```
+d²x^k/dτ² + Γ^k_ij (dx^i/dτ)(dx^j/dτ) = F^k_ext
+```
 
-$$ L = L_{task} - T \cdot S(\dot{x}) $$
-
-- **Mechanic**: The model is penalized if latent trajectories become too repetitive or deterministic (low variance).
-- **Effect**: Maximizing entropy forces the network to find diverse, expressive geodesics for the same semantic task, preventing "cognitive collapse."
-- **Emergence**: This thermodynamic pressure manifests as **curiosity**, driving the model to explore the full geometric capacity of the manifold.
+Where:
+- x^k: Position component k
+- Γ^k_ij: Christoffel symbols (curvature)
+- F_ext: External force (token embedding)
+- τ: Abstract time
 
 ---
 
-## 6. Symplectic Integration
+## Christoffel Symbols
 
-To support these complex dynamics without numerical instability, Manifold employs **Symplectic Integrators** (Störmer-Verlet / Leapfrog).
+**Exact Definition**:
+```
+Γ^k_ij = ½ g^kℓ (∂g_jℓ/∂x^i + ∂g_iℓ/∂x^j - ∂g_ij/∂x^ℓ)
+```
 
-- **Energy Conservation**: The Hamiltonian $H(x, v)$ is preserved to within machine precision.
-- **Reversibility**: The flow is bijective, preventing information loss.
-- **Long-term Stability**: Gradients do not vanish even over infinite sequence lengths (via Adjoint method).
+**Low-Rank Approximation** (implemented):
+```
+Γ(v, x) ≈ W · [(U^T v)² ⊙ σ(||U^T v||)]
+```
 
-This physics-first approach eliminates the need for ad-hoc regularizers like Dropout or aggressive LayerNorm, as stability is intrinsic to the geometry.
+Parameters: U, W ∈ ℝ^(d×R), R=16-64
+
+---
+
+## Hamiltonian Structure
+
+**Energy Function**:
+```
+H(x, v) = ½ v^T v + V(x)
+```
+
+**Conservation**: Symplectic integrators ensure |ΔH| ≈ O(dt²)
+
+**Canonical Equations**:
+```
+dx/dt = ∂H/∂v = v
+dv/dt = -∂H/∂x - Γ(v,x) + F
+```
+
+---
+
+## Symplectic Integration
+
+**Leapfrog Scheme** (2nd-order):
+```
+v_{n+½} = v_n + ½dt · a_n
+x_{n+1} = x_n + dt · v_{n+½}
+v_{n+1} = v_{n+½} + ½dt · a_{n+1}
+```
+
+**Properties**:
+- Time-reversible
+- Volume-preserving: det(∂(x',v')/∂(x,v)) = 1
+- Long-term stable (no energy drift)
+
+---
+
+## Gradient Flow Stability
+
+**Liouville's Theorem**: Phase-space volume preserved → gradients neither vanish nor explode.
+
+**Proof Sketch**:
+```
+∂L/∂x_0 = J^T · ∂L/∂x_T
+||∂L/∂x_0|| ≈ ||∂L/∂x_T||  (since det(J)=1)
+```
+
+---
+
+## Riemannian Optimization
+
+**Problem**: Euclidean updates violate manifold constraints.
+
+**Solution**: Retraction maps Euclidean step back to manifold:
+```
+W_new = Retract_M(W_old - η·grad)
+```
+
+**Normalize Retraction**:
+```
+Retract(W) = W · min(1, max_norm/||W||)
+```
+
+---
+
+**For complete derivations, see [SCIENTIFIC_PAPER.md](SCIENTIFIC_PAPER.md)**
