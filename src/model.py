@@ -202,11 +202,14 @@ class Manifold(nn.Module):
                     x, v, context, layer_christoffels = layer(x, v, force, context)
                     all_christoffels = layer_christoffels 
                 
-                # unit-norm projection to prevent momentum buildup 
-                v = v / (torch.norm(v, dim=-1, keepdim=True) + 1.0)
-                
-                # Bounded Position
-                x = torch.clamp(x, -20.0, 20.0) 
+                # Unit-Energy Shell Projection
+                # Binds the entire phase space (x, v) to a safe latent manifold
+                # Increased to 50.0 to avoid "cramming" the manifold and losing resolution.
+                energy_radius = 50.0
+                state_norm = torch.sqrt(torch.sum(x**2 + v**2, dim=-1, keepdim=True))
+                energy_scale = torch.min(torch.ones_like(state_norm), energy_radius / (state_norm + 1e-6))
+                x = x * energy_scale
+                v = v * energy_scale
                 
                 # Readout: project position to vocabulary logits
                 out = self.readout_norm(x)

@@ -315,7 +315,11 @@ class MLayer(nn.Module):
         # !!! RESIDUALLY ADD TO INPUT !!!
         # Apply Scaling to the Work Delta to ensure stability in deep networks
         res_scale = self.physics_config.get('stability', {}).get('residual_scale', 0.5)
-        return x + x_geo * res_scale, v + v_geo * res_scale, context_next, christoffel_outputs
+        
+        # Unit-Energy Drift: Apply multiplicative friction to ground the momentum
+        v_final = (v + v_geo * res_scale) * (1.0 - self.damping)
+        
+        return x + x_geo * res_scale, v_final, context_next, christoffel_outputs
 
 
 

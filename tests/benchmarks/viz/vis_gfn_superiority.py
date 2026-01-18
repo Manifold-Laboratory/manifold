@@ -42,7 +42,7 @@ class ParityTask:
         return x, y
 
 def train_until_convergence(model, task, max_steps=2500, lr=5e-4, device='cuda', threshold=0.01):
-    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-5) # Reduced WD to protect SIRENs
     # Start from L=2 (Basic XOR) to ensure mastery before scaling
     current_length = 2
     
@@ -62,15 +62,20 @@ def train_until_convergence(model, task, max_steps=2500, lr=5e-4, device='cuda',
         print(f"[*] Training with CrossEntropy Loss (Standard Mode)")
     
     loss_history = []
+    normalized_loss = 1.0
+    static_acc = 0.0
     
     pbar = tqdm(range(max_steps), desc=f"Training {model.__class__.__name__} (L={current_length})")
     normalized_loss = 1.0
     
     for i in pbar:
-        # 1. Syllabus update: Increase length every 250 steps (Slower pacing for stability)
-        if i > 0 and i % 250 == 0 and current_length < task.length:
+        # 1. Gated Syllabus: Only increase length if the model has MASTERED the current one (Acc > 92%)
+        # and has spent at least 150 steps on it.
+        if i > 0 and i % 150 == 0 and static_acc > 0.92 and current_length < task.length:
              current_length = min(task.length, current_length + 2)
              pbar.set_description(f"Training {model.__class__.__name__} (L={current_length})")
+             # Reset EMA for the new length to avoid bias from old easy samples
+             static_acc = 0.5 
              
         # Generate batch with current syllabus length
         temp_task = ParityTask(length=current_length)
@@ -113,29 +118,28 @@ def train_until_convergence(model, task, max_steps=2500, lr=5e-4, device='cuda',
         
         # Exponential moving average for reporting
         normalized_loss = 0.95 * normalized_loss + 0.05 * loss_val
+        
+        # Calculate Accuracy
         if is_binary:
-            # Bit Accuracy (Binary check: logit > 0)
-            # We ONLY check the relevant bits for the task vocab
-            v_bits = int(np.ceil(np.log2(task.vocab_size)))
-            v_bits = max(1, v_bits)
-            
-            preds_bits_v = (logits[:, :, :v_bits] > 0.0).float()
-            target_bits_v = target_bits[:, :, :v_bits]
-            bit_acc = (preds_bits_v == target_bits_v).float().mean()
-            
             # Token Accuracy (full ID check from bits)
             # For parity (vocab 2), bit 0 is enough.
-            preds_parity = (logits[:, :, 0] > 0.0).long()
-            token_acc = (preds_parity == y).float().mean()
-            
-            pbar.set_postfix({
-                'loss': f"{normalized_loss:.4f}", 
-                'bit_acc': f"{bit_acc*100:.1f}%",
-                'parity': f"{token_acc*100:.1f}%",
-                'lr': f"{optimizer.param_groups[0]['lr']:.5f}"
-            })
+            preds = (logits[:, :, 0] > 0.0).long()
+            acc = (preds == y).float().mean().item()
         else:
-            pbar.set_postfix({'loss': f"{normalized_loss:.4f}", 'lr': f"{optimizer.param_groups[0]['lr']:.5f}"})
+            # Standard Readout (Softmax)
+            # logits: [batch, seq, vocab]
+            preds = logits.argmax(dim=-1)
+            acc = (preds == y).float().mean().item()
+
+        # EMA for Accuracy reporting
+        static_acc = 0.95 * static_acc + 0.05 * acc
+        
+        pbar.set_postfix({
+            'loss': f"{normalized_loss:.4f}", 
+            'acc': f"{static_acc*100:.1f}%",
+            'L': current_length,
+            'lr': f"{optimizer.param_groups[0]['lr']:.6f}"
+        })
         loss_history.append(loss_val)
         
         # Strictly solved threshold
@@ -145,7 +149,7 @@ def train_until_convergence(model, task, max_steps=2500, lr=5e-4, device='cuda',
             
     return loss_history
 
-def evaluate_length_generalization(model, task_cls, train_len=20, lengths=[20, 50, 100, 200, 500], device='cuda'):
+def evaluate_length_generalization(model, task_cls, train_len=100, lengths=[100, 200, 500], device='cuda'):
     model.eval()
     accuracies = []
     memories = []
