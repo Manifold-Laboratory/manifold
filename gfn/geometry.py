@@ -55,7 +55,7 @@ class LowRankChristoffel(nn.Module):
         # Try CUDA kernel (Inference Only)
         if x is None and not torch.is_grad_enabled():
             try:
-                from src.cuda.ops import christoffel_fused, CUDA_AVAILABLE
+                from gfn.cuda.ops import christoffel_fused, CUDA_AVAILABLE
                 if CUDA_AVAILABLE and v.is_cuda:
                      # CUDA kernel currently uses a fixed clamp of +/- 5.0 for stability.
                      # Future versions will support dynamic clamping via kernel arguments.
@@ -285,7 +285,7 @@ class LeapfrogIntegrator(nn.Module):
         
         if not torch.is_grad_enabled() and is_scalar_scale:
             try:
-                from src.cuda.ops import leapfrog_fused, CUDA_AVAILABLE
+                from gfn.cuda.ops import leapfrog_fused, CUDA_AVAILABLE
                 if CUDA_AVAILABLE and x.is_cuda:
                      # Ensure dt_scale is float
                      dt_val = dt_scale.item() if isinstance(dt_scale, torch.Tensor) else dt_scale
@@ -545,7 +545,7 @@ class ReactiveChristoffel(LowRankChristoffel):
         # Try Fused CUDA Kernel (Active Inference Mode)
         if not torch.is_grad_enabled() and v.is_cuda:
             try:
-                from src.cuda.ops import christoffel_fused, CUDA_AVAILABLE
+                from gfn.cuda.ops import christoffel_fused, CUDA_AVAILABLE
                 if CUDA_AVAILABLE:
                     # Pass Active Parameters
                     # x and V.weight are needed for Singularities
