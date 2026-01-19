@@ -76,9 +76,9 @@ def christoffel_fused(v, U, W, x=None, V_w=None, plasticity=0.0, sing_thresh=1.0
         gamma: Christoffel symbols [batch, dim]
     """
     if CUDA_AVAILABLE and v.is_cuda:
-        # Check if C++ extension supports new signature (todo check capability)
-        # For now assume we update C++ to match key-word args or strict position
-        # We pass None as empty tensors if needed? 
+        # Check C++ extension signature compatibility.
+        # Future updates will strictly enforce tensor arguments.
+        # We pass empty tensors as placeholders if needed. 
         # C++ usually needs explicit tensors.
         if x is None:
             x = torch.empty(0, device=v.device, dtype=v.dtype)

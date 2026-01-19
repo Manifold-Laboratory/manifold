@@ -140,21 +140,11 @@ class Manifold(nn.Module):
         
         if self.use_scan:
             # === PARALLEL MODE (SCAN) ===
-            # Process entire sequence at once
+            # Process entire sequence at once using the parallel scan algorithm.
+            # The input 'all_forces' acts as the driving force sequence for the layers.
             
-            # Initial states (broadcast to batch)
-            x = self.x0.expand(batch_size, seq_len, -1) # Wait, x0 is purely initial. 
-            # In scan, x evolves. We pass 'x' through layers? 
-            # In MLayer 'x' is input state.
-            # But ParallelMLayer takes 'force' sequence and generates (x,v) sequence.
-            # It's a bit different. The 'force' for layer L comes from readout of layer L-1?
-            # Standard ResNet/Transformer: x_{l+1} = Layer(x_l)
-            # Here: (x, v) = Layer(x, v, force)
-            # For Parallel, we treat the input to the layer as the "Force" driving the flow.
-            # So: Force_0 = Embedding(tokens)
-            # (x_1, v_1) = Layer_1(Force_0)  <-- Parallel Scan
-            # Force_1 = Projection(x_1) ?? Or just pass x_1 as force to next layer?
-            # Let's say the conceptual "Force" for layer L is the output state 'x' of layer L-1.
+            # Initial position state (broadcast to batch)
+            x = self.x0.expand(batch_size, seq_len, -1)
             
             curr_input = all_forces # [B, L, D]
             all_christoffels = [] # To be populated if needed

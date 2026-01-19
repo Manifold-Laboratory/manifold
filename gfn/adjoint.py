@@ -109,7 +109,7 @@ class AdjointManifold(nn.Module):
         ])
         
         # Pre-LN (consistent with V2)
-        # Note: AdjointGLayer dynamics are continuous, but we can apply LN between layers
+        # AdjointGLayer dynamics are continuous, but we can apply LN between layers
         self.norms = nn.ModuleList([nn.LayerNorm(dim) for _ in range(depth)])
         
         self.readout_norm = nn.LayerNorm(dim)

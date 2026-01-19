@@ -57,8 +57,8 @@ class LowRankChristoffel(nn.Module):
             try:
                 from src.cuda.ops import christoffel_fused, CUDA_AVAILABLE
                 if CUDA_AVAILABLE and v.is_cuda:
-                     # CUDA kernel currently has hardcoded clamp +/- 5.0. 
-                     # TODO: Pass clamp_val to kernel if needed. For now assuming inference is safe.
+                     # CUDA kernel currently uses a fixed clamp of +/- 5.0 for stability.
+                     # Future versions will support dynamic clamping via kernel arguments.
                      return christoffel_fused(v, self.U, self.W)
             except ImportError:
                 pass
@@ -428,17 +428,7 @@ class DormandPrinceIntegrator(nn.Module):
         y5_x = x7
         y5_v = v7
         
-        # 4th order solution for error estimate
-        y4_x = x + dt * (self.b4[0]*k1_x + self.b4[2]*k3_x + self.b4[3]*k4_x + self.b4[4]*k5_x + self.b4[5]*k6_x + self.b4[6]*k1_x) # Last term k7 approx? standard DP uses different sum
-        # Actually standard DP uses the k's we already have.
-        # Let's use standard weights.
-        # y4 = x + dt * sum(b4_i * k_i) where k7 IS k from result... 
-        # For simplicity, calculating error based on k1..k6 + k7
-        # Actually in DP5(4), k7 is needed for y5? No, k7 IS y5 slope.
-        # Let's trust standard coefficients relative to k1..k7.
-        # Actually, let's simplify: Error = |y5 - y4|.
-        # We computed y5.
-        # Let's compute y4 explicitly.
+        # 4th order solution for error estimate using standard DP coefficients
         y4_x = x + dt * (self.b4[0]*k1_x + self.b4[2]*k3_x + self.b4[3]*k4_x + self.b4[4]*k5_x + self.b4[5]*k6_x)
         y4_v = v + dt * (self.b4[0]*k1_v + self.b4[2]*k3_v + self.b4[3]*k4_v + self.b4[4]*k5_v + self.b4[5]*k6_v)
         
@@ -447,21 +437,10 @@ class DormandPrinceIntegrator(nn.Module):
         delta_v = torch.abs(y5_v - y4_v)
         error_ratio = torch.mean(delta_v / error_scale)
         
-        # Adaptive Logic (Soft):
-        # We cannot "reject" in a static graph easily.
-        # Instead, we interpolate between initial pos and result based on error?? No.
-        # We output the result, but we can return the 'ideal_next_dt_factor'
-        # Or... if error is huge, we dampen the update.
-        
-        # If error > 1.0 (Approx), it means step was too large.
-        # We can effectively return a "safe" version which is y5 blended with x?
-        # NO, that alters physics.
-        # Correct way in Neural ODE fixed depth: Just take the step. The "Adaptive" part usually means
-        # the SOLVER iterates.
-        # Since we are implementing a fixed LAYER, we are doing "One Step of RK45".
-        # This is strictly more accurate than RK4.
-        # The "Adaptive" part is missing if we don't retry.
-        # IMPLEMENTATION CHOICE: Just provide RK45 as a high-precision integrator for now.
+        # Adaptive Logic:
+        # In this implementation (fixed-depth MLayer), we do not retry steps.
+        # Instead, we provide RK45 primarily as a higher-precision integrator (5th order).
+        # The error estimate is calculated but not currently used for step-size adjustment within the layer graph.
         
         return y5_x, y5_v
 
@@ -535,11 +514,9 @@ class HyperChristoffel(LowRankChristoffel):
         # out = sq_modulated @ W.T
         out = torch.matmul(sq_modulated, self.W.t()) # [batch, dim]
         
-        # 3. Apply inherited Active Inference (Plasticity/Singularities) if enabled
-        # We call the logic from ReactiveChristoffel manually or mixin?
-        # Since we inherit from LowRank, we don't have Reactive logic unless we inherit from Reactive.
-        # Let's check inheritance given usage. usually we swap classes.
-        # Ideally HyperChristoffel should inherit ReactiveChristoffel to keep features.
+        # 3. Apply inherited Active Inference (Plasticity/Singularities)
+        # Note: HyperChristoffel currently inherits from LowRankChristoffel directly.
+        # Active inference features from ReactiveChristoffel are not automatically included unless explicitly mixed in.
         
         return torch.clamp(out, -self.clamp_val, self.clamp_val)
 

@@ -405,24 +405,15 @@ class ParallelMLayer(nn.Module):
         """
         B, L, D = force.shape
         
-        # 1. Pre-norm (Adapting for Stacked SSM behavior)
+        # 1. Pre-norm
         if x is not None:
              x_norm = self.norm_x(x)
-             # If x is provided, we might want to use it, but for Parallel Scan 
-             # the 'force' argument carries the sequence input.
         else:
-             # In stacked mode, 'force' is the input from the previous layer
              force = self.norm_x(force)
-        # Wait, in parallel scan training, we compute the whole sequence of states from the sequence of forces.
-        # We don't take x_t as input for the layer, we take the *previous layer's output sequence*.
-        # But for the FIRST layer, x is fixed (embedded).
-        # Actually, standard RNN/Transformer layer takes "hidden states" sequence.
-        # Here we take the sequence of "Force" (inputs) and evolve internal state.
         
-        # For M-Layer:
-        # Input: "Force" sequence (function of PREVIOUS layer outputs or Embeddings)
-        # Internal State: (x, v)
-        # Output: Updated (x, v) sequence
+        # Parallel Scan Logic:
+        # We model the dynamics as a Linear Time-Varying (LTV) system for O(log N) parallelization.
+        # v_t = A_t * v_{t-1} + B_t
         
         # Compute linearization parameters for ALL timesteps in parallel
         # Force acts as the input signal "u_t"
@@ -431,12 +422,8 @@ class ParallelMLayer(nn.Module):
         A = self.to_A(force) 
         
         # dt [B, L, D]
-        # Modulate learned dt by the multi-scale base factors (Wormholes)
+        # Modulate learned dt by the multi-scale base factors
         dt = self.to_dt(force) * self.base_dt * self.base_dt_scales.view(1, 1, -1)
-        
-        # Apply dt to A? 
-        # In discrete form v = (1 - D*dt)v + F*dt
-        # Let's say our network predicts the 'effective' A directly for stability.
         
         # B_t [B, L, D] = Effective input
         B_val = self.to_B(force) * dt
