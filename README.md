@@ -38,19 +38,19 @@ We compared **Manifold (v2.6.0)** against a standard **Transformer (MicroGPT)** 
 Both models were trained **exclusively** on sequences of length $L=20$. We then evaluated their ability to generalize to sequences up to $L=100,000$ (5,000x longer than training).
 
 <p align="center">
-  <img src="tests/benchmarks/results/gfn_superiority/parity_generalization.png" alt="O(1) Memory Scaling Analysis" width="100%"/>
+  <img src="tests/benchmarks/results/gfn_superiority/parity_result.png" alt="Superiority Benchmark Result" width="100%"/>
   <br>
-  <i><b>Figure 2: The Memory-Generalization Gap.</b> The red trajectory illustrates the linear memory explosion $O(N)$ characteristic of Attention mechanisms, leading to OOM (Out of Memory) errors. The blue trajectory demonstrates Manifold's constant $O(1)$ memory footprint, invariant to sequence length.</i>
+  <i><b>Figure 2: The Generalization Gap.</b> (Left) Accuracy on Cumulative Parity task relative to sequence length. (Right) VRAM usage scaling. Manifold generalizes perfectly to 100,000+ tokens (~5000x training length) while maintaining O(1) memory.</i>
 </p>
 
-### 2.2. Quantitative Analysis
+### 2.2. Vocabulary Scaling (O(1) Parameters)
 
-The results, visualized below, demonstrate a fundamental architectural distinction. The Transformer (Green) suffers from catastrophic memory scaling and semantic collapse outside its training window. Manifold (Orange) maintains **100% precision** across orders of magnitude with a flat memory profile.
+Manifold's **Functional Embeddings** allow the vocabulary to grow indefinitely without increasing parameter count.
 
 <p align="center">
-  <img src="tests/benchmarks/results/gfn_superiority/superiority_result.png" alt="Superiority Benchmark Result" width="100%"/>
+  <img src="tests/benchmarks/results/infinite_scaling/infinite_scaling_plot.png" alt="Infinite Vocab Scaling" width="100%"/>
   <br>
-  <i><b>Figure 2: The Generalization Gap.</b> (Left) Accuracy on Cumulative Parity task. (Right) VRAM usage scaling. Manifold generalizes perfectly to 100,000+ tokens (~5000x training length) while maintaining constant memory.</i>
+  <i><b>Figure 3: Infinite Vocabulary.</b> Proving O(1) memory scaling with respect to vocabulary size (up to 1 Million tokens).</i>
 </p>
 
 **Empirical Conclusion**: Manifold demonstrates true **algorithmic generalization**. It has learned the underlying generative law of the data (the XOR operator) rather than simply memorizing patterns. This capability is enabled by its **momentum-based memory**, which acts as a robust, noise-resistant carrier of logical state.
