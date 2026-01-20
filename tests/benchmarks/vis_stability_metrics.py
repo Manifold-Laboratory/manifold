@@ -14,12 +14,12 @@ sys.path.append(str(PROJECT_ROOT))
 from gfn.model import Manifold
 from gfn.optim import RiemannianAdam
 
-def run_stability_test(steps=100):
+def run_stability_test(steps=1000):
     print(f"🔬 Running Gradient Norm & Energy Stability Test ({steps} steps)...")
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    # Init Model
+    # Init Model with explicit Hamiltonian requirements
     model = Manifold(
         vocab_size=1000,
         dim=256,
@@ -32,9 +32,12 @@ def run_stability_test(steps=100):
         }
     ).to(device)
     
-    # Optimizer
-    optimizer = RiemannianAdam(model.parameters(), lr=1e-3)
+    # Optimizer: User requested RiemannianAdam (Correctly imported)
+    optimizer = RiemannianAdam(model.parameters(), lr=1e-3, max_norm=10.0)
     criterion = nn.CrossEntropyLoss()
+    
+    # Import Hamiltonian Loss
+    from gfn.losses import hamiltonian_loss
     
     # Metrics
     grad_norms = []
@@ -43,29 +46,45 @@ def run_stability_test(steps=100):
     
     model.train()
     
+    # Fixed Dataset for Overfitting/Convergence Check
+    # We want to show the loss GOES DOWN while Energy stays STABLE.
+    # Generating random noise every step makes loss constant (unlearnable).
+    fixed_inputs = torch.randint(0, 1000, (8, 32)).to(device)
+    fixed_targets = torch.randint(0, 1000, (8, 32)).to(device)
+    
+    model.train()
+    
     for step in range(steps):
-        # Dummy Data
-        inputs = torch.randint(0, 1000, (8, 32)).to(device)
-        targets = torch.randint(0, 1000, (8, 32)).to(device)
-        
         optimizer.zero_grad()
         
-        # Forward pass returning state
-        logits, (x_final, v_final), _ = model(inputs)
+        # Unroll sequence to capture velocity history for Hamiltonian Loss
+        # Manifold forward typically returns only final state, so we check stability step-by-step
+        velocities = []
+        state = None
+        outputs_list = []
         
-        # Calculate Hamiltonian Estimate (Energy)
-        # H = T + V approx 0.5 * v^2 (ignoring detailed potential for now)
-        # We average over batch and sequence/dim
-        kinetic_energy = 0.5 * torch.norm(v_final, dim=-1).pow(2).mean().item()
-        energy_history.append(kinetic_energy)
+        for t in range(fixed_inputs.size(1)):
+            token = fixed_inputs[:, t:t+1]
+            logit, state, _ = model(token, state=state)
+            
+            # state is (x, v)
+            velocities.append(state[1])
+            outputs_list.append(logit)
+            
+        logits = torch.cat(outputs_list, dim=1)
         
-        # Loss
-        loss = criterion(logits.view(-1, 1000), targets.view(-1))
-        loss_history.append(loss.item())
+        # 1. Task Loss
+        task_loss = criterion(logits.view(-1, 1000), fixed_targets.view(-1))
         
-        loss.backward()
+        # 2. Hamiltonian Loss (Energy Conservation)
+        h_loss = hamiltonian_loss(velocities, lambda_h=0.01)
         
-        # Calculate Gradient Norm (Global)
+        total_loss = task_loss + h_loss
+        loss_history.append(total_loss.item())
+        
+        total_loss.backward()
+        
+        # Global Gradient Norm
         total_norm = 0.0
         for p in model.parameters():
             if p.grad is not None:
@@ -74,11 +93,15 @@ def run_stability_test(steps=100):
         total_norm = total_norm ** 0.5
         grad_norms.append(total_norm)
         
-        # Step
+        # Record Energy (Kinetic) of final state
+        kinetic_energy = velocities[-1].pow(2).sum(dim=-1).mean().item() * 0.5
+        energy_history.append(kinetic_energy)
+        
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
         
         if step % 10 == 0:
-            print(f"Step {step}: Loss={loss.item():.4f} | GradNorm={total_norm:.4f} | Energy={kinetic_energy:.4f}")
+            print(f"Step {step}: Loss={total_loss.item():.4f} (H={h_loss.item():.4f}) | GradNorm={total_norm:.4f} | Energy={kinetic_energy:.4f}")
 
     # Plotting
     fig, axes = plt.subplots(3, 1, figsize=(10, 12), sharex=True)

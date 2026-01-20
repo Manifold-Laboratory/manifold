@@ -1,5 +1,0 @@
-Name,Integrator,Scan,Accuracy,Steps to 90%,Duration (s)
-Int-heun_Scan-False,heun,False,0.0,> Max,207.3
-Int-rk4_Scan-False,rk4,False,0.0,> Max,376.9
-Int-symplectic_Scan-False,symplectic,False,0.0,> Max,203.7
-BASELINE_Scan_Mode,heun,True,0.0,> Max,29.2

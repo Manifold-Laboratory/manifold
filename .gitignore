@@ -31,9 +31,15 @@ MANIFEST
 *.pt
 *.ckpt
 
-# Checkpoints (keep config, exclude large files)
+# Checkpoints (Exclude all model weights everywhere)
+checkpoints/
 checkpoints/**/*.pt
 checkpoints/**/*.pth
+checkpoints/*.pt
+checkpoints/*.pth
+*.pt
+*.pth
+*.ckpt
 !checkpoints/**/config.yaml
 !checkpoints/**/train.txt
 
@@ -46,6 +52,9 @@ checkpoints/**/*.pth
 # Explicitly allow benchmark results (images, json, html)
 !tests/benchmarks/results/
 !tests/benchmarks/results/**/*
+tests/benchmarks/results/**/old/
+tests/benchmarks/results/**/*.csv
+tests/benchmarks/results/**/*.log
 
 # Virtual Environments
 venv/

@@ -1,5 +1,0 @@
-Name,Integrator,Scan,Accuracy,Steps to 90%,Duration (s),Status
-Int-heun_Scan-False,heun,False,0.0,,0.0,FAILED
-Int-rk4_Scan-False,rk4,False,0.0,,0.0,FAILED
-Int-symplectic_Scan-False,symplectic,False,0.0,,0.0,FAILED
-BASELINE_Scan_Mode,heun,True,0.0,,0.0,FAILED
