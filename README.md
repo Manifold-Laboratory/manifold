@@ -21,26 +21,34 @@ The fundamental limitation of modern Large Language Models (LLMs) is the **Key-V
 **Manifold** introduces a paradigm shift by reformulating sequence modeling through the lens of **Geometric Mechanics**. Instead of storing a history of discrete tokens, Manifold encodes context into the **momentum** of a dynamic massive particle moving through a curved semantic space.
 
 This approach yields a **Physically-Structured State Space Model (SSM)** that achieves:
-1.  **$O(1)$ Inference Memory**: Constant state complexity (~30MB) regardless of sequence length ($L=10$ or $L=1,000,000$).
-2.  **Infinite Context Horizon**: Information is preserved via symplectic conservation laws rather than explicit storage.
-3.  **Symplectic Stability**: Energy-conserving integrators prevent the vanishing/exploding gradient problem inherent in standard RNNs.
+*   **$O(1)$ Inference Memory**: Constant state complexity (~30MB) regardless of sequence length ($L=10$ or $L=1,000,000$).
+*   **Infinite Context Horizon**: Information is preserved via symplectic conservation laws rather than explicit storage.
+*   **Symplectic Stability**: Energy-conserving integrators prevent the vanishing/exploding gradient problem inherent in standard RNNs.
 
 ---
 
 ## 2. The Superiority Benchmark
 
-To rigorously evaluate long-term state tracking capabilities, we utilize the **Cumulative Parity (XOR) Task**. This task represents a "worst-case" scenario for memory: a single bit flip at $t=0$ inverts the target at $t=\infty$.
+To rigorously evaluate the state-tracking capabilities of this architecture, we conducted the **Manifold Superiority Benchmark**. This benchmark utilizes the **Cumulative Parity (XOR) Task**, a problem that is computationally irreducible and requires perfect, lossless memory retention over the entire sequence duration. A single bit-flip error at $t=0$ propagates to invert the target at $t=\infty$, making it the ultimate test of long-term dependency handling.
 
-We compare **Manifold** against a standard **Transformer (MicroGPT)** on zero-shot length generalization.
+We compared **Manifold (v2.6.0)** against a standard **Transformer (MicroGPT)** with equivalent parameter counts.
 
 ### 2.1. Infinite Length Generalization
 
-Both models were trained **exclusively** on sequences of length $L=20$. We then evaluated their ability to generalize to lengths up to $L=100,000$ (5,000x longer than training).
+Both models were trained **exclusively** on sequences of length $L=20$. We then evaluated their ability to generalize to sequences up to $L=100,000$ (5,000x longer than training).
+
+<p align="center">
+  <img src="tests/benchmarks/results/gfn_superiority/parity_generalization.png" alt="O(1) Memory Scaling Analysis" width="100%"/>
+  <br>
+  <i><b>Figure 2: The Memory-Generalization Gap.</b> The red trajectory illustrates the linear memory explosion $O(N)$ characteristic of Attention mechanisms, leading to OOM (Out of Memory) errors. The blue trajectory demonstrates Manifold's constant $O(1)$ memory footprint, invariant to sequence length.</i>
+</p>
+
+### 2.2. Quantitative Analysis
 
 The results, visualized below, demonstrate a fundamental architectural distinction. The Transformer (Green) suffers from catastrophic memory scaling and semantic collapse outside its training window. Manifold (Orange) maintains **100% precision** across orders of magnitude with a flat memory profile.
 
 <p align="center">
-  <img src="tests/benchmarks/results/gfn_superiority/parity_result.png" alt="Superiority Benchmark Result" width="100%"/>
+  <img src="tests/benchmarks/results/gfn_superiority/superiority_result.png" alt="Superiority Benchmark Result" width="100%"/>
   <br>
   <i><b>Figure 2: The Generalization Gap.</b> (Left) Accuracy on Cumulative Parity task. (Right) VRAM usage scaling. Manifold generalizes perfectly to 100,000+ tokens (~5000x training length) while maintaining constant memory.</i>
 </p>
@@ -49,11 +57,28 @@ The results, visualized below, demonstrate a fundamental architectural distincti
 
 ---
 
-## 3. Theoretical Foundations
+## 3. Dynamic Physics: Forgetting & Remembering
 
-Manifold diverges from standard connectionsist architectures by imposing **Hamiltonian constraints** on the latent update rule.
+Standard RNNs struggle to forget ("catastrophic memory"), while Transformers must explicitly mask history. Manifold employs a **Dynamic Forget Gate** (thermodynamic friction) that adapts to the input energy.
 
-### 3.1. The Geodesic Equation
+### 3.1. Context-Aware Forgetting
+
+*   **Stable Context:** Friction $\approx 0$ (Symplectic Conservation). The model remembers.
+*   **Context Switch:** Friction spikes (Energy Dissipation). The model forgets.
+
+<p align="center">
+  <img src="tests/benchmarks/results/stability/dynamic_friction_test.png" alt="Dynamic Friction Response" width="100%"/>
+  <br>
+  <i><b>Figure 3: The Physics of Forgetting.</b> (Left) When a high-energy "Context Switch" occurs (Blue), the Learnable Friction (Red) spikes immediately to dissipate previous state momentum. (Right) The learned activation function shows a clear phase transition from conservation to dissipation based on input magnitude.</i>
+</p>
+
+---
+
+## 4. Theoretical Foundations
+
+Manifold diverges from standard connectionsist architectures by imposing **Hamiltonian constraints** on the latent update rule. The network learns to shape the geometry of the solution space, such that the "natural motion" of the state vector corresponds to the desired computation.
+
+### 4.1. The Geodesic Equation
 
 The latent state update is governed by the discrete-time approximation of the geodesic equation on a Riemannian manifold:
 
@@ -67,7 +92,7 @@ Where:
 *   $\Gamma(x)$: The **Christoffel Symbols** (Learned Interaction Tensor), defining the local curvature and feature interactions ($O(d^2)$ complexity).
 *   $F(u_t)$: The **External Force** derived from the input token embedding.
 
-### 3.2. Symplectic Stability & Conservation
+### 4.2. Symplectic Stability & Conservation
 
 Standard Euler integration used in Residual Networks is energy-dissipative, leading to signal loss. Manifold employs a **Leapfrog Integrator**, a symplectic solver designed to strictly conserve phase-space volume.
 
@@ -79,11 +104,11 @@ Standard Euler integration used in Residual Networks is energy-dissipative, lead
 
 ---
 
-## 4. Latent Space Analysis
+## 5. Latent Space Analysis
 
 We perform a deep diagnostic of the model's internal representation to understand *how* it solves complex tasks.
 
-### 4.1. Manifold Trajectories vs. Random Walks
+### 5.1. Manifold Trajectories vs. Random Walks
 
 By projecting the high-dimensional hidden states into 3D, we observe that Manifold learns smooth, deterministic orbits, whereas traditional RNNs often exhibit chaotic or collapsing trajectories.
 
@@ -93,7 +118,7 @@ By projecting the high-dimensional hidden states into 3D, we observe that Manifo
   <i><b>Figure 4: Latent Dynamics Comparison.</b> Left: The chaotic state evolution of a standard RNN. Right: The coherent, orbital structure of a Manifold trained on the same task. The geometric prior forces the state to follow smooth geodesic paths.</i>
 </p>
 
-### 4.2. The Geometry of Optimization
+### 5.2. The Geometry of Optimization
 
 Why does Manifold converge faster on complex tasks? The answer lies in the Loss Landscape. By constraining parameters to the manifold, we convexify the optimization surface.
 
@@ -105,7 +130,7 @@ Why does Manifold converge faster on complex tasks? The answer lies in the Loss 
 
 ---
 
-## 5. Advanced Dynamics: Beyond Text
+## 6. Advanced Dynamics: Beyond Text
 
 The geometric framework is domain-agnostic. By projecting inputs into the tangent space of the manifold, the model processes text, images, and audio as unified force vectors. Current experiments demonstrate convergence in multimodal tasks, suggesting that geometric mechanics is a universal prior for sequential data.
 
@@ -117,11 +142,11 @@ The geometric framework is domain-agnostic. By projecting inputs into the tangen
 
 ---
 
-## 6. Implementation & Usage
+## 7. Implementation & Usage
 
 Manifold provides a production-ready implementation with a PyTorch-native API.
 
-### 6.1. Installation
+### 7.1. Installation
 
 ```bash
 pip install gfn
@@ -131,9 +156,9 @@ cd manifold
 pip install -e "."
 ```
 
-### 6.2. Geodesic Training Loop
+### 7.2. Geodesic Training Loop
 
-The optimizer must respect the geometry of the parameter space. We provide `RiemannianAdam` to perform covariant gradient updates.
+The optimizer must respect the geometry of the parameter space. Standard Adam optimization assumes a Euclidean flat space, which is suboptimal for Riemannian models. We provide `RiemannianAdam` to perform covariant gradient updates.
 
 ```python
 import torch
@@ -170,18 +195,9 @@ for input_ids, targets in dataloader:
 
 ---
 
-## 7. Current Limitations
-
-While Manifold demonstrates theoretical superiority in state tracking and memory efficiency, it is currently a **fundamental research project**.
-
-*   **Computational Throughput**: Current implementations rely on PyTorch overhead. Optimized CUDA kernels are in development to reach Transformer-parity training speeds.
-*   **Associative Retrieval**: Momentum-based memory excels at tracking state changes but differs fundamentally from the "random access memory" mechanism of Attention.
-
----
-
 ## 8. Citation
 
-If you utilize this framework in your research, please cite:
+Manifold is an active research project. If you utilize this framework or its findings in your research, please cite:
 
 ```bibtex
 @article{manifold2026,

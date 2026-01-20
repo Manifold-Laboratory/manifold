@@ -1,5 +1,5 @@
 # Project Structure
-
+.
 MANIFOLD/
 ├── README.md                  # Main documentation
 ├── LICENSE                    # Apache License 2.0

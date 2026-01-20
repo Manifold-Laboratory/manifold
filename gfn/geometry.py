@@ -42,23 +42,30 @@ class LowRankChristoffel(nn.Module):
         # Let's start neutral.
         self.gate_proj = nn.Linear(dim, dim)
         nn.init.zeros_(self.gate_proj.weight)
-        nn.init.constant_(self.gate_proj.bias, 2.0) # Start OPEN (sigmoid(2) ~ 0.88) to encourage learning early
+        nn.init.constant_(self.gate_proj.bias, 2.0) # Start OPEN (sigmoid(2) ~ 0.88)
+        
+        # === Dynamic Friction (The Forget Gate) ===
+        # Replaces static friction.
+        # Logic: If context switch needed -> High Friction -> Dissipate Energy -> Forget.
+        # If long-term dependency -> Low Friction -> Conserve Energy -> Remember.
+        # F_damp = - sigma(Gate(x)) * v
+        self.forget_gate = nn.Linear(dim, dim)
+        # Init to low friction (preserve memory by default = 0.05 equivalent)
+        nn.init.normal_(self.forget_gate.weight, std=0.01)
+        nn.init.constant_(self.forget_gate.bias, -3.0) # sigmoid(-3) approx 0.047 (close to static 0.05)
         
     def forward(self, v, x=None):
         """
-        Compute Γ(v, v) = W * (U^T v)^2
+        Compute Generalized Force: Γ(v, v) + Friction(x)*v
         
-        If x is provided, we apply Dynamic Curvature Modulation:
-        Γ_dynamic = Γ_static * (1 + sigmoid(V^T x))
+        Output represents the effective "Resistance" to motion.
+        Acc = F_ext - Output
         """
-        # Try CUDA kernel first (Only supports static curvature for now)
         # Try CUDA kernel (Inference Only)
         if x is None and not torch.is_grad_enabled():
             try:
                 from gfn.cuda.ops import christoffel_fused, CUDA_AVAILABLE
                 if CUDA_AVAILABLE and v.is_cuda:
-                     # CUDA kernel currently uses a fixed clamp of +/- 5.0 for stability.
-                     # Future versions will support dynamic clamping via kernel arguments.
                      return christoffel_fused(v, self.U, self.W)
             except ImportError:
                 pass
@@ -68,33 +75,38 @@ class LowRankChristoffel(nn.Module):
         proj = torch.matmul(v, self.U) # [batch, rank]
         
         # Norm-based saturation (geometrically consistent)
-        # Prevents explosion while preserving vector structure
         norm = torch.norm(proj, dim=-1, keepdim=True)
         scale = 1.0 / (1.0 + norm)  # Soft saturation based on total magnitude
         sq = (proj * proj) * scale
         
-        out = torch.matmul(sq, self.W.t()) # [batch, dim]
+        gamma = torch.matmul(sq, self.W.t()) # [batch, dim]
         
         # Dynamic Curvature Modulation (Gravity Wells)
         if x is not None:
-            # V(x) -> scalar modulation
-            # We want deviations from "flat" space to be localized
             modulation = torch.sigmoid(self.V(x)) # Range (0, 1)
-            # Factor: 1.0 (unchanged) to 2.0 (doubled curvature)
-            # Or we can make it multiplicative: out * (1 + mod)
-            out = out * (1.0 + modulation)
+            gamma = gamma * (1.0 + modulation)
             
-        # Stability: Tight clamp prevents "exploding" curvature
-        out = torch.clamp(out, -self.clamp_val, self.clamp_val)
+        # Stability: Tight clamp
+        gamma = torch.clamp(gamma, -self.clamp_val, self.clamp_val)
         
-        # Adaptive Gating (The Valve)
-        # If x is "stable", gate closes (0) -> No curvature -> Inertial Coasting
-        # If x needs adjustment, gate opens (1) -> Full geometry
+        # Adaptive Gating for Curvature
         if x is not None:
             gate = torch.sigmoid(self.gate_proj(x)) # [batch, dim]
-            out = out * gate
+            gamma = gamma * gate
             
-        return out
+        # === Apply Dynamic Friction (Forget Gate) ===
+        # This adds the linear damping term: + mu(x) * v
+        # Since Acc = -Output, this becomes Acc = -Gamma - mu*v (Correct Damped Harmonic Oscillator)
+        if x is not None:
+            # Friction coefficient per dimension: [0, 1]
+            friction = torch.sigmoid(self.forget_gate(x))
+            damping_force = friction * v
+            
+            # Combine geometric curvature with thermodynamic friction
+            # Total Resistance = Gamma(v^2) + Damping(v)
+            return gamma + damping_force
+            
+        return gamma
 
 class SymplecticIntegrator(nn.Module):
     r"""

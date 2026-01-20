@@ -1,5 +1,5 @@
 # MANIFOLD: Technical Handbook
-**Version:** 1.0.0
+**Version:** 2.6.0
 **Status:** Unified Reference
 
 This handbook provides the mathematical foundation, training protocols, and technical specifications for the MANIFOLD architecture.
@@ -13,7 +13,7 @@ The MANIFOLD architecture is governed by the principles of **Symplectic Sequence
 ### 1. The Geodesic Equation
 State evolution is modeled as a particle moving along the shortest path (geodesic) in a learned Riemannian latent space:
 
-$$ \frac{d^2x^k}{d\tau^2} + \Gamma^k_{ij} \frac{dx^i}{d\tau} \frac{dx^j}{d\tau} = F^k_{ext} $$
+$$ \frac{d^2x^k}{d\tau^2} + \Gamma^k_{ij} \frac{dx^i}{d\tau} \frac{dx^j}{d\tau} + \mathcal{F}_{friction}^k = F^k_{ext} $$
 
 Where:
 - $x$: The **Semantic Position** (Latent state).
@@ -31,9 +31,9 @@ This formulation allows for $O(d^2)$ interaction resolution (Multi-Head Attentio
 ### 3. Symplectic Integration (Leapfrog)
 To preserve information over infinite horizons, we use a 2nd-order Velocity Verlet scheme:
 
-1.  $v_{t+1/2} = v_t + \frac{1}{2}\Delta t \cdot A(x_t, v_t)$
+1.  $v_{t+1/2} = v_t + \frac{1}{2}\Delta t \cdot (A(x_t, v_t) - \sigma(W_f x_t)v_t)$
 2.  $x_{t+1} = x_t + \Delta t \cdot v_{t+1/2}$
-3.  $v_{t+1} = v_{t+1/2} + \frac{1}{2}\Delta t \cdot A(x_{t+1}, v_{t+1/2})$
+3.  $v_{t+1} = v_{t+1/2} + \frac{1}{2}\Delta t \cdot (A(x_{t+1}, v_{t+1/2}) - \sigma(W_f x_{t+1})v_{t+1/2})$
 
 This preservation of phase-space volume ensures that gradients neither vanish nor explode.
 

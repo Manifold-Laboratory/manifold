@@ -1,7 +1,7 @@
 # MANIFOLD Training Guide
 
-**Version:** 2.5.0 "Riemannian Stability"  
-**Last Updated:** January 18, 2026
+**Version:** 2.6.0 "Symplectic Forgetting"  
+**Last Updated:** January 20, 2026
 
 Complete guide for training MANIFOLD models, from quick start to advanced optimization.
 
@@ -556,6 +556,6 @@ epoch = checkpoint['epoch']
 
 ---
 
-**Document Version**: 2.5.0  
-**Last Updated**: January 18, 2026  
+**Document Version**: 2.6.0  
+**Last Updated**: January 20, 2026  
 **Status**: Production-Ready

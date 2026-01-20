@@ -1,7 +1,7 @@
 # MANIFOLD Architecture
 
-**Version:** 2.5.0 "Riemannian Stability"  
-**Last Updated:** January 18, 2026
+**Version:** 2.6.0 "Symplectic Forgetting"  
+**Last Updated:** January 20, 2026
 
 System architecture overview and design principles for the MANIFOLD framework.
 
@@ -133,8 +133,9 @@ Output: (x_next, v_next, context_next)
 **Algorithm**: Velocity Verlet (Leapfrog)
 
 ```python
-# Acceleration at t
-a_t = F - Γ(v_t, x_t)
+# Acceleration at t (with Friction)
+# F_friction = -sigmoid(W_forget·x) * v
+a_t = F - Γ(v_t, x_t) + F_friction(v_t, x_t)
 
 # Half-step velocity
 v_half = v_t + 0.5 * dt * a_t
@@ -143,7 +144,7 @@ v_half = v_t + 0.5 * dt * a_t
 x_{t+1} = x_t + dt * v_half
 
 # Acceleration at t+1
-a_{t+1} = F - Γ(v_half, x_{t+1})
+a_{t+1} = F - Γ(v_half, x_{t+1}) + F_friction(v_half, x_{t+1})
 
 # Half-step velocity finalization
 v_{t+1} = v_half + 0.5 * dt * a_{t+1}

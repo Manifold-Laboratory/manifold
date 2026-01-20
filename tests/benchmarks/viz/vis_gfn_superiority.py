@@ -116,6 +116,13 @@ def train_step_gpt(model, optimizer, scheduler, inputs, targets, device):
 def train_until_convergence(model, task_cls, max_steps=1500, lr=3e-4, device='cuda'):
     is_manifold = isinstance(model, Manifold)
     
+    # === Speed Optimizations ===
+    torch.backends.cuda.matmul.allow_tf32 = True 
+    torch.backends.cudnn.benchmark = True
+    
+    # NOTE: torch.compile is disabled for Windows compatibility (Missing Triton)
+    # The gain is marginal for this specific recurrence loop anyway.
+    
     if is_manifold:
         print("[*] Training Manifold (RiemannianAdam + O(1) MSE)")
         optimizer = RiemannianAdam(model.parameters(), lr=lr, weight_decay=1e-4, max_norm=10.0)

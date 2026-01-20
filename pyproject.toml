@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gfn"
-version = "2.6.0"
+version = "2.6.1"
 description = "Manifold: Geometric Intelligence via Symplectic Geodesic Flows | GFN: Geometric Flow Networks"
 readme = "README.md"
 license = { text = "Apache-2.0" }

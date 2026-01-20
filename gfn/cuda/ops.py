@@ -32,11 +32,12 @@ try:
              # (This is useful for development but fragile on Windows)
              print("[GFN CUDA] Pre-compiled extension not found, attempting JIT compilation...")
              gfn_cuda = load(
-                name='gfn_cuda',
+                name='gfn_cuda_v2_6',
                 sources=[
                     os.path.join(cuda_dir, 'cuda_kernels.cpp'),
                     os.path.join(cuda_dir, 'kernels', 'christoffel_fused.cu'),
                     os.path.join(cuda_dir, 'kernels', 'leapfrog_fused.cu'),
+                    os.path.join(cuda_dir, 'kernels', 'parallel_scan_fused.cu'),
                 ],
                 extra_cuda_cflags=['-O3', '--use_fast_math', '-m64', '-ccbin', r'C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64\cl.exe'],
                 extra_cflags=['/DNOMINMAX', '/DWIN32_LEAN_AND_MEAN', '/Zc:twoPhase-'],

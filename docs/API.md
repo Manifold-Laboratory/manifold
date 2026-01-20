@@ -1,7 +1,7 @@
 # MANIFOLD API Reference
 
-**Version:** 2.5.0 "Riemannian Stability"  
-**Last Updated:** January 18, 2026
+**Version:** 2.6.0 "Symplectic Forgetting"  
+**Last Updated:** January 20, 2026
 
 Complete Python API documentation for the MANIFOLD framework.
 
@@ -392,11 +392,13 @@ for layer_idx, gamma in enumerate(christoffels):
 
 ## API Changelog
 
-**v2.5.0 (Current)**:
-- Added `RiemannianAdam` optimizer
-- Implemented adaptive curvature gating
-- Added zero-force embedding bias
-- Velocity normalization (automatic)
+**v2.6.0 (Current)**:
+- Added Dynamic Forget Gate (Thermodynamic Friction)
+- Updated M-Layer with friction term
+- Verified 100K token generalization
+- Added Parallel Scan to CUDA kernels
+
+**v2.5.0**:
 
 **v2.0.0**:
 - Functional embeddings
@@ -408,7 +410,7 @@ for layer_idx, gamma in enumerate(christoffels):
 
 ---
 
-**Documentation Version**: 2.5.0  
+**Documentation Version**: 2.6.0  
 **API Stability**: Beta (breaking changes possible)  
 **License**: Apache 2.0
 

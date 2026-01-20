@@ -1,7 +1,7 @@
 # MANIFOLD Physics & Mathematics
 
-**Version:** 2.5.0  
-**Last Updated:** January 18, 2026
+**Version:** 2.6.0  
+**Last Updated:** January 20, 2026
 
 Mathematical foundations of the MANIFOLD architecture, derived from differential geometry and Hamiltonian mechanics.
 
@@ -56,7 +56,13 @@ While the system is forced (non-conservative), the symplectic integrator structu
 **Dynamics**:
 ```
 dx/dt = v
-dv/dt = F(token) - Γ(v, x)
+dv/dt = F(token) - Γ(v, x) - F_friction(v, x)
+```
+
+**Dynamic Friction**:
+We introduce a dissipative term $F_{friction} = -\sigma(W_f x) \cdot v$ that allows the model to dynamically switch between:
+1.  **Symplectic Mode** ($\sigma \approx 0$): Conservation of memory.
+2.  **Dissipative Mode** ($\sigma \approx 1$): Forgetting of old context.
 ```
 
 ---
