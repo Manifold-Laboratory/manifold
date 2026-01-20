@@ -6,6 +6,7 @@ Welcome to the MANIFOLD documentation. This directory contains comprehensive tec
 
 ### Technical Reference
 - **[SCIENTIFIC_PAPER.md](SCIENTIFIC_PAPER.md)** - Complete research paper with mathematical derivations, experimental validation, and reproducibility details
+- **[TECHNICAL_HANDBOOK.md](TECHNICAL_HANDBOOK.md)** - **The "Source of Truth"**: Fundamental equations, loss engine details, and optimization protocols.
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture overview and design principles
 - **[API.md](API.md)** - Python API reference for model usage
 - **[TRAINING.md](TRAINING.md)** - Training procedures, hyperparameters, and optimization guides

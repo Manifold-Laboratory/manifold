@@ -1,6 +1,13 @@
 import torch
 import math
 
+# Try to import CUDA kernels
+try:
+    from .cuda import cuda_ops
+    CUDA_AVAILABLE = True
+except ImportError:
+    CUDA_AVAILABLE = False
+
 def parallel_scan(a, x):
     """
     Computes y_t = a_t * y_{t-1} + x_t via parallel associative scan.
@@ -12,6 +19,11 @@ def parallel_scan(a, x):
     Returns:
         y: Scan result [batch, seq_len, dim]
     """
+    # Use CUDA kernel if available and on GPU
+    if CUDA_AVAILABLE and a.is_cuda:
+        return cuda_ops.parallel_scan_fused(a, x)
+    
+    # Fallback to PyTorch implementation
     # Simply using PyTorch's native cumulatives is often faster/stable enough 
     # for sequences < 4096 than custom cuda kernels without Triton.
     # But native cumprod is unstable for deep recurrences.

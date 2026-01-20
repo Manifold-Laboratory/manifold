@@ -2,7 +2,7 @@
 # Infinite Dataset, Optimized for Speed
 training:
   dataset: 'math'
-  dataset_size: 100000000  # Infinite generation
+  dataset_size: null  # Infinite generation
   dataset_path: null  # Do not load from file
   max_digits: 2
   

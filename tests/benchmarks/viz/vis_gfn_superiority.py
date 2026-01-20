@@ -1,4 +1,3 @@
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -18,7 +17,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # Import GFN Models & Physics
 from gfn.model import Manifold
 from gfn.optim import RiemannianAdam
-from gfn.losses import hamiltonian_loss, curiosity_loss, geodesic_regularization
+from gfn.losses import hamiltonian_loss, geodesic_regularization
 
 # Import Baselines & Utils
 from tests.benchmarks.baselines import MicroGPT
@@ -80,10 +79,6 @@ def train_step_manifold(model, optimizer, scheduler, inputs, targets, device):
     # This acts as the proxy for Hamiltonian stability by preventing metric explosion
     if christoffels:
         loss_phy += geodesic_regularization(None, christoffels, lambda_g=0.001)
-        
-    # Curiosity DISABLED (User Request: "Solo Hamilton/Stability")
-    # if v_final is not None:
-    #    loss_phy += curiosity_loss([v_final], lambda_c=0.05)
         
     total_loss = loss_mse + loss_phy
     
@@ -171,22 +166,23 @@ def evaluate_generalization(model, lengths, device='cuda'):
         
         # 1. Measure VRAM (Streaming Inference)
         def forward_streaming():
-            B, Seq = x.shape
-            state = None
-            last_logits = None
-            for t in range(Seq):
-                 inp = x[:, t:t+1]
-                 # Manifold: inputs, state -> logits, state, christoffels
-                 # GPT: inputs -> logits (Standard)
-                 if isinstance(model, Manifold):
-                     l, state, _ = model(inp, state=state)
-                 else:
-                     l = model(inp) # Fake streaming for GPT (it recomputes or uses kv cache if impl)
-                     # MicroGPT likely doesn't support state passing easily, 
-                     # but let's assume standard forward for memory measurement baseline
-                     pass 
-                 last_logits = l
-            return last_logits
+            with torch.no_grad():  # CRITICAL: Prevent graph accumulation for O(1) memory
+                B, Seq = x.shape
+                state = None
+                last_logits = None
+                for t in range(Seq):
+                     inp = x[:, t:t+1]
+                     # Manifold: inputs, state -> logits, state, christoffels
+                     # GPT: inputs -> logits (Standard)
+                     if isinstance(model, Manifold):
+                         l, state, _ = model(inp, state=state)
+                     else:
+                         l = model(inp) # Fake streaming for GPT (it recomputes or uses kv cache if impl)
+                         # MicroGPT likely doesn't support state passing easily, 
+                         # but let's assume standard forward for memory measurement baseline
+                         pass 
+                     last_logits = l
+                return last_logits
 
         def forward_full():
             if isinstance(model, Manifold):
@@ -200,24 +196,28 @@ def evaluate_generalization(model, lengths, device='cuda'):
              # For Manifold: We verify O(1) by stepping token-by-token
              if isinstance(model, Manifold):
                  mem = measure_peak_memory(model, forward_streaming)
-                 # Get logical output
+                 
+                 # CRITICAL: Use streaming for accuracy too (not full forward!)
+                 # Otherwise we break O(1) for long sequences
                  with torch.no_grad():
-                     logits, _, _ = model(x)
+                     state = None
+                     preds_list = []
+                     for t in range(x.shape[1]):
+                         inp = x[:, t:t+1]
+                         logits, state, _ = model(inp, state=state)
+                         pred = (logits[:, 0, 0] > 0.0).long()
+                         preds_list.append(pred)
+                     preds = torch.stack(preds_list, dim=1)
              else:
                  # For GPT: Standard full attention matrix forward
                  mem = measure_peak_memory(model, forward_full)
                  with torch.no_grad():
                      logits = model(x)
+                     preds = logits.argmax(dim=-1)
                  
              vrams.append(mem)
              
              # 2. Check Accuracy
-             if isinstance(model, Manifold):
-                 # Binary Decoding
-                 preds = (logits[:, :, 0] > 0.0).long()
-             else:
-                 preds = logits.argmax(dim=-1)
-                 
              acc = (preds == y).float().mean().item()
              accuracies.append(acc)
              
@@ -227,6 +227,9 @@ def evaluate_generalization(model, lengths, device='cuda'):
             print(f"  L={L}: Failed ({e})")
             accuracies.append(0.0)
             vrams.append(-1.0)
+        
+        # CRITICAL: Clear CUDA cache between tests to prevent accumulation
+        torch.cuda.empty_cache()
             
     return accuracies, vrams
 
@@ -242,7 +245,7 @@ def run_benchmark():
     # Manifold (V1.0 Config: O(1) + Physics)
     manifold = Manifold(
         vocab_size=2, dim=dim, depth=6, heads=4,
-        use_scan=False,
+        use_scan=False,  # Sequential mode with optimized MLayer
         integrator_type='leapfrog',
         physics_config={
             'embedding': {'type': 'functional', 'mode': 'binary', 'coord_dim': 16},
@@ -260,14 +263,54 @@ def run_benchmark():
     print("\n--- Training Manifold ---")
     loss_m = train_until_convergence(manifold, ParityTask, max_steps=1000, lr=3e-4, device=device)
     
+    # Save Manifold checkpoint
+    checkpoint_dir = PROJECT_ROOT / "checkpoints"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_path = checkpoint_dir / "manifold_parity_superiority.pt"
+    
+    torch.save({
+        'model_state_dict': manifold.state_dict(),
+        'model_config': {
+            'vocab_size': 2,
+            'dim': dim,
+            'depth': 6,
+            'heads': 4,
+            'integrator_type': 'leapfrog',
+            'physics_config': manifold.physics_config
+        },
+        'final_loss': loss_m,
+        'task': 'Parity (Cumulative XOR)'
+    }, checkpoint_path)
+    print(f"✅ Manifold checkpoint saved to {checkpoint_path}")
+    
     print("\n--- Training GPT ---")
     loss_g = train_until_convergence(gpt, ParityTask, max_steps=2000, lr=1e-3, device=device)
     
     # 3. Benchmark
-    lengths = [20, 50, 100, 200, 500, 1000]
+    lengths = [20, 50, 100, 200, 500, 1000, 10000, 100000]
     acc_m, mem_m = evaluate_generalization(manifold, lengths, device)
     acc_g, mem_g = evaluate_generalization(gpt, lengths, device)
     
+    # 3.5. Save Metrics to JSON
+    out_dir = PROJECT_ROOT / "tests/benchmarks/results/gfn_superiority"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    
+    metrics = {
+        "lengths": lengths,
+        "manifold": {
+            "accuracy": acc_m,
+            "vram_mb": mem_m
+        },
+        "transformer": {
+            "accuracy": acc_g,
+            "vram_mb": mem_g
+        }
+    }
+    
+    with open(out_dir / "parity_metrics.json", "w") as f:
+        json.dump(metrics, f, indent=2)
+    print(f"✅ Metrics saved to {out_dir}/parity_metrics.json")
+
     # 4. Plot
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
     
@@ -289,10 +332,8 @@ def run_benchmark():
     ax2.set_yscale('log')
     ax2.legend()
     
-    out_dir = PROJECT_ROOT / "tests/benchmarks/results/gfn_superiority"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    plt.savefig(out_dir / "superiority_result.png", dpi=300)
-    print(f"\n✅ Result saved to {out_dir}/superiority_result.png")
+    plt.savefig(out_dir / "parity_result.png", dpi=300)
+    print(f"\n✅ Result saved to {out_dir}/parity_result.png")
 
 if __name__ == "__main__":
     run_benchmark()

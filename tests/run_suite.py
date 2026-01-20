@@ -9,7 +9,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 def run_suite():
     print("=" * 70)
-    print("      GFN PROFESSIONAL TEST SUITE (v2.0)")
+    print("      GFN  TEST SUITE ")
     print("=" * 70)
     print("\nFor comprehensive report with visualizations, run:")
     print("  python tests/benchmarks/generate_report.py --checkpoint your_model.pt")

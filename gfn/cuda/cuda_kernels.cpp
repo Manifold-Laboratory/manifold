@@ -26,6 +26,12 @@ extern "C" void launch_leapfrog_fused(
     cudaStream_t stream
 );
 
+extern "C" void launch_parallel_scan_fused(
+    const float* a, const float* x, float* y,
+    int batch, int seq_len, int dim,
+    cudaStream_t stream
+);
+
 // PyTorch Wrappers
 torch::Tensor christoffel_fused_cuda(
     torch::Tensor v,
@@ -84,7 +90,27 @@ std::vector<torch::Tensor> leapfrog_fused_cuda(
     return {x_new, v_new};
 }
 
+torch::Tensor parallel_scan_fused_cuda(
+    torch::Tensor a,
+    torch::Tensor x
+) {
+    const int batch = a.size(0);
+    const int seq_len = a.size(1);
+    const int dim = a.size(2);
+    
+    auto y = torch::empty_like(x);
+    
+    launch_parallel_scan_fused(
+        a.data_ptr<float>(), x.data_ptr<float>(), y.data_ptr<float>(),
+        batch, seq_len, dim,
+        at::cuda::getCurrentCUDAStream()
+    );
+    
+    return y;
+}
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("christoffel_fused", &christoffel_fused_cuda, "Fused Christoffel computation (CUDA)");
     m.def("leapfrog_fused", &leapfrog_fused_cuda, "Fused Leapfrog integration (CUDA)");
+    m.def("parallel_scan_fused", &parallel_scan_fused_cuda, "Fused Parallel Scan (CUDA)");
 }

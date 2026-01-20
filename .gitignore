@@ -111,6 +111,9 @@ data/processed/
 *.hdf5
 *.h5
 .data/
+*.gz
+*.zip
+*ubyte
 
 # Secrets and credentials
 .env

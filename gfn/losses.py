@@ -63,44 +63,12 @@ def geodesic_regularization(velocities: list, christoffel_outputs: list, lambda_
     if not christoffel_outputs:
         return torch.tensor(0.0)
     
-    # Penalize large curvature forces
-    curvature_norms = [c.pow(2).mean() for c in christoffel_outputs]
-    return lambda_g * torch.stack(curvature_norms).mean()
+    # Efficient Vectorization: Instead of 480+ CUDA kernels, we do one.
+    # christoffel_outputs is a list of [batch, d] tensors.
+    all_curvatures = torch.stack(christoffel_outputs) # [N_heads*Seq, B, d]
+    curvature_norms = all_curvatures.pow(2).mean()
+    return lambda_g * curvature_norms
 
-
-def curiosity_loss(velocities: list, lambda_c: float = 0.05) -> torch.Tensor:
-    """
-    Entropy-Driven Curiosity Loss (Thermodynamics).
-    
-    Encourages the model to explore diverse cognitive geodesics by maximizing 
-    the differential entropy of the velocity distribution.
-    
-    Concept:
-        Maximizing entropy prevents "cognitive collapse" and forces the model 
-        to find new ways to resolve the same Hamiltonian task.
-    
-    Formula:
-        S = Σ log(std(v_i) + ε)  (Entropy proxy for Gaussian-like latent distribution)
-        L_C = - λ_c * S
-        
-    Args:
-        velocities: List of velocity tensors
-        lambda_c: Curiosity Temperature (T)
-    """
-    if not velocities:
-        return torch.tensor(0.0, device=velocities[0].device if velocities else 'cpu')
-        
-    all_v = torch.cat(velocities, dim=0) # [Batch * Seq, Dim]
-    
-    # Calculate batch-wise standard deviation for each dimension
-    # We add epsilon for numerical stability of log
-    v_std = all_v.std(dim=0) + 1e-6
-    
-    # Entropy proxy: Sum of log-stds
-    entropy = torch.log(v_std).sum()
-    
-    # We want to MAXIMIZE entropy, so we MINIMIZE negative entropy
-    return -lambda_c * entropy
 
 
 def noether_loss(christoffel_outputs: list, isomeric_groups: list = None, lambda_n: float = 0.01) -> torch.Tensor:
@@ -160,11 +128,10 @@ class GFNLoss(nn.Module):
         ignore_index: Padding token index for CE loss
     """
     
-    def __init__(self, lambda_h: float = 0.01, lambda_g: float = 0.001, lambda_c: float = 0.0, lambda_n: float = 0.0, ignore_index: int = -100):
+    def __init__(self, lambda_h: float = 0.01, lambda_g: float = 0.001, lambda_n: float = 0.0, ignore_index: int = -100):
         super().__init__()
         self.lambda_h = lambda_h
         self.lambda_g = lambda_g
-        self.lambda_c = lambda_c
         self.lambda_n = lambda_n
         self.ce_loss = nn.CrossEntropyLoss(ignore_index=ignore_index)
     
@@ -200,12 +167,6 @@ class GFNLoss(nn.Module):
             total = total + g_loss
             loss_dict["geodesic"] = g_loss.item()
 
-        # Curiosity (Entropy Production)
-        if self.lambda_c > 0 and velocities:
-            c_loss = curiosity_loss(velocities, self.lambda_c)
-            total = total + c_loss
-            loss_dict["curiosity"] = c_loss.item()
-            
         # Noether (Semantic Symmetries)
         if self.lambda_n > 0 and christoffel_outputs:
             n_loss = noether_loss(christoffel_outputs, isomeric_groups=isomeric_groups, lambda_n=self.lambda_n)

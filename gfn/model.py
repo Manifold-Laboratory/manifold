@@ -113,7 +113,7 @@ class Manifold(nn.Module):
             nn.init.zeros_(module.bias)
             nn.init.ones_(module.weight)
     
-    def forward(self, input_ids, attention_mask=None, state=None):
+    def forward(self, input_ids=None, attention_mask=None, state=None, force_manual=None, collect_christ=False):
         """
         Forward pass through the geodesic flow.
         
@@ -121,12 +121,21 @@ class Manifold(nn.Module):
             input_ids: Token indices [batch, seq_len]
             attention_mask: Optional mask [batch, seq_len] (1=valid, 0=pad)
             state: Optional tuple (x, v) to continue from previous state
+            force_manual: Optional pre-computed force sequence [batch, seq_len, dim]
+            collect_christ: Whether to accumulate all Christoffel metadata (slow)
             
         Returns:
             logits: Output logits [batch, seq_len, vocab_size]
             state: Final state tuple (x, v) for continuation
+            christoffels: List of accumulated curvature tensors (if collect_christ is True)
         """
-        batch_size, seq_len = input_ids.shape
+        if force_manual is not None:
+            all_forces = force_manual
+            batch_size, seq_len, _ = all_forces.shape
+        else:
+            batch_size, seq_len = input_ids.shape
+            # Pre-compute all token embeddings (forces)
+            all_forces = self.embedding(input_ids)  # [batch, seq_len, dim]
         
         # Initialize state from learnable parameters or provided state
         if state is None:
@@ -135,16 +144,13 @@ class Manifold(nn.Module):
         else:
             x, v = state
         
-        # Pre-compute all token embeddings (forces)
-        all_forces = self.embedding(input_ids)  # [batch, seq_len, dim]
-        
         if self.use_scan:
             # === PARALLEL MODE (SCAN) ===
             # Process entire sequence at once using the parallel scan algorithm.
             # The input 'all_forces' acts as the driving force sequence for the layers.
             
             # Initial position state (broadcast to batch)
-            x = self.x0.expand(batch_size, seq_len, -1)
+            x_scan = self.x0.expand(batch_size, seq_len, -1)
             
             curr_input = all_forces # [B, L, D]
             all_christoffels = [] # To be populated if needed
@@ -175,7 +181,7 @@ class Manifold(nn.Module):
             if attention_mask is not None:
                 mask = attention_mask.unsqueeze(-1).float()  # [batch, seq_len, 1]
             else:
-                mask = torch.ones(batch_size, seq_len, 1, device=input_ids.device)
+                mask = torch.ones(batch_size, seq_len, 1, device=all_forces.device)
             
             # Process sequence token by token (recurrent dynamics)
             logits_list = []
@@ -193,10 +199,8 @@ class Manifold(nn.Module):
                 for layer in self.layers:
                     # Update state
                     x, v, context, layer_christoffels = layer(x, v, force, context)
-                    all_christoffels = layer_christoffels 
-                
-                # State is already Phase-Locked per-layer in MLayer.
-                # No additional coarse clamping needed.
+                    if collect_christ:
+                        all_christoffels.extend(layer_christoffels) 
                 
                 # Readout: project position to vocabulary logits
                 out = self.readout_norm(x)

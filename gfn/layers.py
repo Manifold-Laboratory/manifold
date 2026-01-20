@@ -286,6 +286,8 @@ class MLayer(nn.Module):
             
             # Collect geometry metadata for the loss function
             # We re-evaluate here to avoid modifying integrator return types
+            # CRITICAL: no_grad() prevents metric networks from being trained by task loss
+            # This avoids catastrophic interference between task learning and geometry
             with torch.no_grad():
                 gamma = self.christoffels[i](v_heads[i], x_heads[i])
             christoffel_outputs.append(gamma)
@@ -518,3 +520,4 @@ class FractalMLayer(nn.Module):
         v_final = v_m + tunnel_gate * (v_f - v_m) * self.alpha_scale
         
         return x_final, v_final, ctx_m, christoffels
+
