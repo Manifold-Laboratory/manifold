@@ -44,6 +44,6 @@ See [BENCHMARKS.md](BENCHMARKS.md) for complete results.
 
 ---
 
-**Version**: 2.5.0 "Riemannian Stability"  
+**Version**: 2.6.0 "Riemannian Stability"  
 **Last Updated**: January 18, 2026  
 **License**: Apache 2.0
