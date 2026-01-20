@@ -136,3 +136,7 @@ secrets/
 *.tmp
 temp/
 tmp/
+
+# Experiments (Local only)
+experiments/math_super_model/
+experiments/math_super_model/*

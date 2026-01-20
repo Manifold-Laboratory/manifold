@@ -16,9 +16,9 @@ setup(
                 'kernels/leapfrog_fused.cu',
             ],
             extra_compile_args={
-                'cxx': ['/std:c++17', '/DNOMINMAX', '/DWIN32_LEAN_AND_MEAN', '/permissive-', '/Zc:__cplusplus'],
+                'cxx': ['/std:c++17', '/DNOMINMAX', '/DWIN32_LEAN_AND_MEAN', '/permissive-', '/Zc:__cplusplus', '/Zm2000'],
                 'nvcc': [
-                    '-O3', '--use_fast_math', '-std=c++17',
+                    '-O1', '--use_fast_math', '-std=c++17',
                     '-Xcompiler', '/std:c++17', 
                     '-Xcompiler', '/DNOMINMAX',
                     '-Xcompiler', '/DWIN32_LEAN_AND_MEAN',
