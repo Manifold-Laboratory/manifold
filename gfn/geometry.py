@@ -63,53 +63,58 @@ class LowRankChristoffel(nn.Module):
         """
         Compute Generalized Force: Γ(v, v) + Friction(x)*v
         
-        Output represents the effective "Resistance" to motion.
-        Acc = F_ext - Output
+        Supports both single head [B, D] and batched heads [H, B, d].
         """
-        # Try Fused CUDA Kernel (Now supports Training via Autograd!)
-        if x is None and CUDA_AVAILABLE and v.is_cuda:
+        # Try Fused Modular CUDA Kernel (Only for single head currently)
+        if CUDA_AVAILABLE and v.is_cuda and v.dim() == 2:
             try:
-                return christoffel_fused(v, self.U, self.W)
+                from gfn.cuda.ops import lowrank_christoffel_fused
+                return lowrank_christoffel_fused(v, self.U, self.W)
             except Exception:
                 pass
         
-        # PyTorch Implementation
-        # v: [batch, dim]
-        proj = torch.matmul(v, self.U) # [batch, rank]
+        # Vectorized Implementation (Supports implicit heads via broadcasting)
+        # v: [B, D] or [H, B, d]
+        # U: [D, R] or [H, d, R]
         
-        # Norm-based saturation (geometrically consistent)
-        norm = torch.norm(proj, dim=-1, keepdim=True)
-        scale = 1.0 / (1.0 + norm)  # Soft saturation based on total magnitude
-        sq = (proj * proj) * scale
-        
-        gamma = torch.matmul(sq, self.W.t()) # [batch, dim]
-        
-        # Dynamic Curvature Modulation (Gravity Wells)
+        if v.dim() == 3 and self.U.dim() == 3:
+            # Batched Heads Path: v is [H, B, d], U is [H, d, R]
+            proj = torch.bmm(v, self.U) # [H, B, R]
+            norm = torch.norm(proj, dim=-1, keepdim=True)
+            scale = 1.0 / (1.0 + norm)
+            sq = (proj * proj) * scale # [H, B, R]
+            gamma = torch.bmm(sq, self.W.transpose(1, 2)) # [H, B, d]
+        else:
+            # Standard Path
+            proj = torch.matmul(v, self.U)
+            norm = torch.norm(proj, dim=-1, keepdim=True)
+            scale = 1.0 / (1.0 + norm)
+            sq = (proj * proj) * scale
+            gamma = torch.matmul(sq, self.W.t())
+            
+        # Add Damping/Gating logic if x is provided (Vectorized)
         if x is not None:
-            modulation = torch.sigmoid(self.V(x)) # Range (0, 1)
+            # Ensure x is reshaped to match v if batched
+            if v.dim() == 3 and x.dim() == 2:
+                # x: [B, D] -> [H, B, d]
+                H = v.shape[0]
+                x_reshaped = x.view(x.shape[0], H, -1).transpose(0, 1)
+            else:
+                x_reshaped = x
+                
+            # Dynamic Curvature Modulation
+            modulation = torch.sigmoid(self.V(x_reshaped))
             gamma = gamma * (1.0 + modulation)
             
-        # Stability: Tight clamp
-        gamma = torch.clamp(gamma, -self.clamp_val, self.clamp_val)
-        
-        # Adaptive Gating for Curvature
-        if x is not None:
-            gate = torch.sigmoid(self.gate_proj(x)) # [batch, dim]
+            # Adaptive Gating
+            gate = torch.sigmoid(self.gate_proj(x_reshaped))
             gamma = gamma * gate
             
-        # === Apply Dynamic Friction (Forget Gate) ===
-        # This adds the linear damping term: + mu(x) * v
-        # Since Acc = -Output, this becomes Acc = -Gamma - mu*v (Correct Damped Harmonic Oscillator)
-        if x is not None:
-            # Friction coefficient per dimension: [0, 1]
-            friction = torch.sigmoid(self.forget_gate(x))
-            damping_force = friction * v
+            # Dynamic Friction
+            friction = torch.sigmoid(self.forget_gate(x_reshaped))
+            gamma = gamma + friction * v
             
-            # Combine geometric curvature with thermodynamic friction
-            # Total Resistance = Gamma(v^2) + Damping(v)
-            return gamma + damping_force
-            
-        return gamma
+        return torch.clamp(gamma, -self.clamp_val, self.clamp_val)
 
 
 
@@ -211,15 +216,15 @@ class ReactiveChristoffel(LowRankChristoffel):
         self.black_hole_strength = self.active_cfg.get('singularities', {}).get('strength', 10.0)
 
     def forward(self, v, x=None):
-        # Try Fused CUDA Kernel (Supports Training via Autograd!)
+        # Try Fused Modular CUDA Kernel
         if CUDA_AVAILABLE and v.is_cuda:
             try:
+                from gfn.cuda.ops import reactive_christoffel_fused
                 # Pass Active Parameters
-                # x and V.weight are needed for Singularities
                 V_w = self.V.weight if (x is not None and self.active_cfg.get('singularities', {}).get('enabled', False)) else None
                 pos_x = x if (V_w is not None) else None
                 
-                return christoffel_fused(
+                return reactive_christoffel_fused(
                     v, self.U, self.W, 
                     x=pos_x, V_w=V_w, 
                     plasticity=self.plasticity if self.active_cfg.get('reactive_curvature', {}).get('enabled', False) else 0.0,

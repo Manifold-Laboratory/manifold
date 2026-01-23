@@ -43,7 +43,7 @@ def run_integrator_suite():
     vocab_size = 64
     dim = 512
     depth = 4   # Shallower for faster stats
-    heads = 6   # Single head for pure integrator drift test
+    heads = 1   # Single head for pure integrator drift test
     seq_len = 128
     batch_size = 16
     drift_steps = 100 # Steps to measure drift

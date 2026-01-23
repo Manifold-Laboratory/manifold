@@ -190,33 +190,60 @@ class Manifold(nn.Module):
             # Context state
             context = None
             
-            # 🚀 TRAJECTORY FUSION PATH (ULTRA-FAST)
-            # Only if: heads=1, no special gating, forces available
-            can_fuse = (not self.use_scan and self.depth > 0 and self.layers[0].heads == 1 
-                        and not collect_christ and not self.training)
+            # Trajectory Fusion Path: Fuses Seq_Len × Depth × Heads into ONE kernel launch.
+            # Requirements: no scan, depth > 0, no christoffel metadata collection.
+            can_fuse = (not self.use_scan and self.depth > 0 and not collect_christ)
             
             if can_fuse:
                 try:
                     from gfn.cuda.ops import recurrent_manifold_fused, CUDA_AVAILABLE
-                    if CUDA_AVAILABLE and hasattr(recurrent_manifold_fused, '__call__'):
-                        # Stack parameters for the kernel
-                        U_stack = torch.stack([l.christoffels[0].U for l in self.layers])
-                        W_stack = torch.stack([l.christoffels[0].W for l in self.layers])
+                    if CUDA_AVAILABLE:
+                        # Stack parameters for ALL heads across ALL layers
+                        # The kernel expects: [Layer * Heads, Dim, Rank]
+                        U_list = []
+                        W_list = []
+                        for layer in self.layers:
+                            for head_idx in range(self.heads):
+                                U_list.append(layer.christoffels[head_idx].U)
+                                W_list.append(layer.christoffels[head_idx].W)
                         
+                        U_stack = torch.stack(U_list)
+                        W_stack = torch.stack(W_list)
                         base_dt = self.layers[0].base_dt
                         
-                        # 🚀 DISPATCH TO ULTRA-FAST FUSED KERNEL (Trajectory Fusion)
-                        res = recurrent_manifold_fused(x, v, all_forces * mask, 
-                                                      U_stack, W_stack, base_dt, 1.0)
+                        # 🚀 DISPATCH TO FUSED KERNEL
+                        
+                        # Active Inference Params
+                        act_inf = self.physics_config.get('active_inference', {})
+                        plasticity = act_inf.get('plasticity', 0.0) if act_inf.get('enabled', False) else 0.0
+                        
+                        sing_cfg = self.physics_config.get('singularities', {})
+                        sing_enabled = sing_cfg.get('enabled', False)
+                        sing_thresh = sing_cfg.get('threshold', 0.9) if sing_enabled else 1.0 # 1.0 = disabled
+                        sing_strength = sing_cfg.get('strength', 1.0) if sing_enabled else 1.0
+
+                        if self.training:
+                            from .cuda.autograd import recurrent_manifold_fused_autograd
+                            res = recurrent_manifold_fused_autograd(
+                                x, v, all_forces * mask, U_stack, W_stack, base_dt, 1.0, self.heads,
+                                plasticity, sing_thresh, sing_strength
+                            )
+                        else:
+                            res = recurrent_manifold_fused(
+                                x, v, all_forces * mask, U_stack, W_stack, base_dt, 1.0, self.heads,
+                                plasticity, sing_thresh, sing_strength
+                            )
                         
                         if res is not None:
-                            x, v, x_seq = res
-                            # Readout the whole sequence
+                            x, v, x_seq, reg_loss = res
+                            # Readout sequence
                             out_seq = self.readout_norm(x_seq)
-                            logits = self.readout(out_seq) # [batch, seq, vocab]
-                            return logits, [] 
-                except Exception:
-                    # Silent fallback to standard loop
+                            logits = self.readout(out_seq)
+                            
+                            # Note: reg_loss from kernel is [batch], loss functions might expect list
+                            return logits, (x, v), [reg_loss]
+                except Exception as e:
+                    # Fallback to standard loop if fusion fails
                     pass
 
             for t in range(seq_len):

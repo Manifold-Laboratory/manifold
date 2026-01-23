@@ -23,6 +23,7 @@ setup(
                 'gfn/cuda/src/integrators/rk4_fused.cu',
                 'gfn/cuda/src/integrators/dormand_prince_fused.cu',
                 'gfn/cuda/src/integrators/recurrent_manifold_fused.cu',
+                'gfn/cuda/src/integrators/recurrent_manifold_backward.cu',
                 'gfn/cuda/src/layers/parallel_scan_fused.cu',
             ],
             include_dirs=[os.path.join(os.getcwd(), 'gfn', 'cuda', 'include')],

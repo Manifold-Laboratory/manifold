@@ -149,11 +149,23 @@ def run_superiority_benchmark():
     
     # 1. Models
     dim = 128
-    manifold = Manifold(vocab_size=2, dim=dim, depth=6, heads=4, integrator_type='leapfrog').to(device)
-    gpt = MicroGPT(vocab_size=2, dim=dim, depth=4, heads=4, max_len=2000).to(device)
+    physics_config = {
+        'embedding': {'type': 'functional', 'mode': 'binary', 'coord_dim': 16},
+        'readout': {'type': 'implicit', 'coord_dim': 16},
+        'active_inference': {'enabled': True, 'plasticity': 0.1},
+        'fractal': {'enabled': False}, # Keep disabled for baseline stability
+        'singularities': {'enabled': True, 'strength': 5.0}
+    }
+    
+    manifold = Manifold(
+        vocab_size=2, dim=dim, depth=6, heads=1, 
+        integrator_type='leapfrog',
+        physics_config=physics_config
+    ).to(device)
+    gpt = MicroGPT(vocab_size=2, dim=dim, depth=6, heads=1, max_len=2000).to(device)
     
     # 2. Training Phase
-    h_m = train_model(manifold, max_steps=800, device=device)
+    h_m = train_model(manifold, max_steps=1000, device=device)
     h_g = train_model(gpt, max_steps=1200, device=device)
     
     # 3. Scaling Phase
