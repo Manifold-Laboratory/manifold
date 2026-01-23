@@ -1,3 +1,6 @@
+# IN PROGRESS
+
+
 # Manifold: Geometric Sequence Modeling via Symplectic Flows
 
 > **Infinite Context. Constant Memory. Hamiltonian Dynamics.**
