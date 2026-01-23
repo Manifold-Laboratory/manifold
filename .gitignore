@@ -125,7 +125,8 @@ data/processed/
 *.gz
 *.zip
 *ubyte
-
+*.rar
+*.7z
 # Secrets and credentials
 .env
 secrets/
