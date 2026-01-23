@@ -303,6 +303,35 @@ def manifold_step_fused(x, v, force, U, W, dt, dt_scale=1.0, plasticity=0.0, sin
         )
     return None
 
+def head_mixing_fused(x_heads, v_heads, W_x, W_v):
+    """
+    Inter-head mixing via linear projections.
+    
+    Args:
+        x_heads: [H, B, D/H] position states per head
+        v_heads: [H, B, D/H] velocity states per head
+        W_x: [D, D] mixing weight for positions
+        W_v: [D, D] mixing weight for velocities
+    
+    Returns:
+        x_out: [B, D] mixed positions
+        v_out: [B, D] mixed velocities
+    """
+    if CUDA_AVAILABLE and x_heads.is_cuda:
+        return gfn_cuda.head_mixing_fused(
+            x_heads.contiguous(), v_heads.contiguous(),
+            W_x.contiguous(), W_v.contiguous()
+        )
+    
+    # Fallback PyTorch
+    H, B, D_H = x_heads.shape
+    D = H * D_H
+    x_concat = x_heads.transpose(0, 1).reshape(B, D)  # [B, D]
+    v_concat = v_heads.transpose(0, 1).reshape(B, D)
+    x_out = torch.matmul(x_concat, W_x.t())
+    v_out = torch.matmul(v_concat, W_v.t())
+    return x_out, v_out
+
 def recurrent_manifold_fused(x_state, v_state, forces, U_stack, W_stack, dt, dt_scale=1.0, num_heads=1,
                             plasticity=0.0, sing_thresh=1.0, sing_strength=1.0):
     """

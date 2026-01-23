@@ -198,6 +198,14 @@ extern "C" void launch_manifold_step_fused(
     cudaStream_t stream
 );
 
+extern "C" void launch_head_mixing_fused(
+    const float* x_heads, const float* v_heads,
+    const float* W_x, const float* W_v,
+    float* x_out, float* v_out,
+    int heads, int batch, int dim,
+    cudaStream_t stream
+);
+
 // Wrappers
 
 torch::Tensor christoffel_fused_cuda(torch::Tensor v, torch::Tensor U, torch::Tensor W, torch::Tensor x, torch::Tensor V_w, float plasticity, float sing_thresh, float sing_strength) {
@@ -441,6 +449,29 @@ std::vector<torch::Tensor> manifold_step_fused_cuda(
     return {x_out, v_out, christoffel_out};
 }
 
+std::vector<torch::Tensor> head_mixing_fused_cuda(
+    torch::Tensor x_heads, torch::Tensor v_heads,
+    torch::Tensor W_x, torch::Tensor W_v
+) {
+    int heads = x_heads.size(0);
+    int batch = x_heads.size(1);
+    int head_dim = x_heads.size(2);
+    int dim = heads * head_dim;
+    
+    auto x_out = torch::empty({batch, dim}, x_heads.options());
+    auto v_out = torch::empty({batch, dim}, v_heads.options());
+    
+    launch_head_mixing_fused(
+        x_heads.data_ptr<float>(), v_heads.data_ptr<float>(),
+        W_x.data_ptr<float>(), W_v.data_ptr<float>(),
+        x_out.data_ptr<float>(), v_out.data_ptr<float>(),
+        heads, batch, dim,
+        at::cuda::getCurrentCUDAStream()
+    );
+    
+    return {x_out, v_out};
+}
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("christoffel_fused", &christoffel_fused_cuda);
     m.def("christoffel_backward", &christoffel_backward_cuda);
@@ -461,4 +492,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("recurrent_manifold_fused", &recurrent_manifold_fused_cuda);
     m.def("recurrent_manifold_backward", &recurrent_manifold_backward_cuda);
     m.def("manifold_step_fused", &manifold_step_fused_cuda);
+    m.def("head_mixing_fused", &head_mixing_fused_cuda);
 }

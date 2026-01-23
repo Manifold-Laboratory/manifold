@@ -29,6 +29,7 @@ setup(
                 'src/integrators/recurrent_manifold_backward.cu',
                 'src/integrators/manifold_step.cu',
                 'src/layers/parallel_scan_fused.cu',
+                'src/layers/head_mixing.cu',
             ],
             include_dirs=[os.path.join(cuda_dir, 'include')],
             extra_compile_args={

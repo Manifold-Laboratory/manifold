@@ -179,8 +179,6 @@ extern "C" void launch_parallel_scan_fused(
     int batch,
     int seq_len,
     int dim,
-    int seq_len,
-    int dim,
     float plasticity,
     cudaStream_t stream
 ) {
@@ -193,7 +191,6 @@ extern "C" void launch_parallel_scan_fused(
     const int padding = BLOCK_SIZE / 32;
     const int shared_bytes = 2 * (BLOCK_SIZE + padding) * sizeof(float);
     
-    parallel_scan_fused_kernel<<<grid, block, shared_bytes, stream>>>(
     parallel_scan_fused_kernel<<<grid, block, shared_bytes, stream>>>(
         a, x, y, batch, seq_len, dim, plasticity
     );
