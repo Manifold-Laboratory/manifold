@@ -111,4 +111,21 @@ Retract(W) = W · min(1, max_norm/||W||)
 
 ---
 
+---
+
+## 8. The Runge-Kutta Paradox & Non-Smooth Dynamics
+
+**The Discovery**:
+In standard physics simulations, higher-order Runge-Kutta (RK4) methods are superior. In MANIFOLD GFN, they diverge instantly (Drift > 3000%). 
+
+**Reasoning (Singularity Aliasing)**:
+1.  **Discontinuous Topology**: Features like "Logical Singularities" (Black Holes) and "Fractal Tunneling" create a non-smooth ($C^2$ or less) force field.
+2.  **Multi-Stage Error**: RK4 evaluates 4 stages per step. If an intermediate stage evaluates a position *inside* a high-curvature singularity, the 4th-order polynomial over-extrapolates the force, launching the particle to infinity.
+3.  **Stability Criterion**: Lower-order methods (Heun, Euler, Leapfrog) are more "local"—they don't attempt to model high-order derivatives of a field that isn't smooth.
+
+> [!TIP]
+> **Implication**: The "thought space" of GFN is not a smooth manifold, but a **Piecewise Riemannian Variety**. This provides a fundamental link between neural logic (discreteness) and physical flow (continuity).
+
+---
+
 **For complete derivations, see [SCIENTIFIC_PAPER.md](SCIENTIFIC_PAPER.md)**

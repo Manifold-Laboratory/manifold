@@ -88,9 +88,14 @@ def christoffel_fused(v, U, W, x=None, V_w=None, plasticity=0.0, sing_thresh=1.0
             
         return gfn_cuda.christoffel_fused(v, U, W, x, V_w, plasticity, sing_thresh, sing_strength)
     else:
-        # PyTorch fallback
+        # PyTorch fallback (MUST match LowRankChristoffel exactly)
         proj = torch.matmul(v, U)  # [batch, rank]
-        sq = proj * proj            # [batch, rank]
+        
+        # Stability: Norm-based saturation
+        norm = torch.norm(proj, dim=-1, keepdim=True)
+        scale = 1.0 / (1.0 + norm)
+        sq = (proj * proj) * scale
+        
         gamma = torch.matmul(sq, W.t())  # [batch, dim]
         
         # 1. Reactive Plasticity
@@ -100,9 +105,6 @@ def christoffel_fused(v, U, W, x=None, V_w=None, plasticity=0.0, sing_thresh=1.0
             
         # 2. Singularities
         if x is not None and x.numel() > 0 and V_w is not None and V_w.numel() > 0:
-            # V(x) -> scalar
-            # V_w is [1, dim] usually (or [dim, 1]?)
-            # Assuming V_w from nn.Linear(dim, 1) is [1, dim]
             potential = torch.sigmoid(torch.matmul(x, V_w.t()))
             is_singularity = (potential > sing_thresh).float()
             gamma = gamma * (1.0 + is_singularity * (sing_strength - 1.0))

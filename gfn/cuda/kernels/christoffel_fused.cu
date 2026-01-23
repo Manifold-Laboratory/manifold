@@ -84,12 +84,25 @@ __global__ void christoffel_fused_kernel(
     }
     __syncthreads();
     
+    // Normalized Saturation: Γ = W * (proj^2 / (1 + ||proj||))
+    __shared__ float s_norm;
+    if (threadIdx.x == 0) {
+        float norm_sum = 0.0f;
+        for (int r = 0; r < rank; r++) {
+            norm_sum += s_U[r] * s_U[r];
+        }
+        s_norm = sqrtf(norm_sum);
+    }
+    __syncthreads();
+
     float final_mult = s_final_mult;
+    float scale = 1.0f / (1.0f + s_norm);
+    
     for (int i = threadIdx.x; i < dim; i += blockDim.x) {
         float val = 0.0f;
         for (int r = 0; r < rank; r++) {
             float proj = s_U[r];
-            val += W[i * rank + r] * proj * proj;
+            val += W[i * rank + r] * proj * proj * scale;
         }
         val = fminf(fmaxf(val, -5.0f), 5.0f);
         gamma[b * dim + i] = val * final_mult;

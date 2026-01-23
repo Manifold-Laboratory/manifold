@@ -1,0 +1,74 @@
+{
+    "benchmark": "integrators",
+    "category": "core",
+    "timestamp": "2026-01-23T05:26:33.374474",
+    "hardware": {
+        "device": "NVIDIA GeForce GTX 1650",
+        "torch_version": "2.6.0+cu124"
+    },
+    "data": [
+        {
+            "Integrator": "euler",
+            "Type": "Standard",
+            "Drift (%)": 0.006389618617727584,
+            "Inference Speed": 4.043140795540789,
+            "VRAM (MB)": 23.67626953125
+        },
+        {
+            "Integrator": "heun",
+            "Type": "Standard",
+            "Drift (%)": 0.000476837210278178,
+            "Inference Speed": 3.336514535783312,
+            "VRAM (MB)": 26.0712890625
+        },
+        {
+            "Integrator": "rk4",
+            "Type": "Standard",
+            "Drift (%)": 3283.050907569961,
+            "Inference Speed": 2.050163000799015,
+            "VRAM (MB)": 26.0712890625
+        },
+        {
+            "Integrator": "rk45",
+            "Type": "Standard",
+            "Drift (%)": 50364.24501411746,
+            "Inference Speed": 0.7392988882697592,
+            "VRAM (MB)": 26.0712890625
+        },
+        {
+            "Integrator": "leapfrog",
+            "Type": "Symplectic",
+            "Drift (%)": 76790.26718719394,
+            "Inference Speed": 0.09029170920575039,
+            "VRAM (MB)": 26.0712890625
+        },
+        {
+            "Integrator": "symplectic",
+            "Type": "Symplectic",
+            "Drift (%)": 44236.33296793942,
+            "Inference Speed": 2.5285020335608017,
+            "VRAM (MB)": 26.0712890625
+        },
+        {
+            "Integrator": "yoshida",
+            "Type": "Symplectic",
+            "Drift (%)": 77284.1881395722,
+            "Inference Speed": 1.675777957315098,
+            "VRAM (MB)": 26.0712890625
+        },
+        {
+            "Integrator": "forest_ruth",
+            "Type": "Symplectic",
+            "Drift (%)": 4.768372102781779e-05,
+            "Inference Speed": 1.7088930786069008,
+            "VRAM (MB)": 26.0712890625
+        },
+        {
+            "Integrator": "omelyan",
+            "Type": "Symplectic",
+            "Drift (%)": 73068.97771829457,
+            "Inference Speed": 1.421326130995467,
+            "VRAM (MB)": 26.0712890625
+        }
+    ]
+}

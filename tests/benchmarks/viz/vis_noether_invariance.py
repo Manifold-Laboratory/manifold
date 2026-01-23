@@ -1,3 +1,9 @@
+"""
+Professional Noether Invariance Visualization
+=============================================
+Mapping semantic symmetries and conserved quantities in latent space.
+"""
+
 import torch
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -12,11 +18,13 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from gfn.model import Manifold
-from tests.benchmarks.bench_utils import measure_peak_memory
+from tests.benchmarks.bench_utils import ResultsLogger, PerformanceStats
 
-def verify_noether_symmetries(checkpoint_path):
+def verify_noether_symmetries(checkpoint_path=None):
+    logger = ResultsLogger("symmetries", category="viz")
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print("⚖️ Verifying Semantic Symmetries (Noether Invariance)...")
+    
+    print("⚖️ Verifying Professional Semantic Symmetries (Noether Invariance)...")
     
     # 1. Setup
     vocab = "0123456789+-*= "
@@ -24,123 +32,98 @@ def verify_noether_symmetries(checkpoint_path):
     
     physics_config = {'embedding': {'type': 'functional', 'mode': 'binary', 'coord_dim': 16}}
     model = Manifold(vocab_size=len(vocab), dim=512, depth=1, heads=1, physics_config=physics_config).to(device)
-    if os.path.exists(checkpoint_path):
-        ckpt = torch.load(checkpoint_path, map_location=device)
-        model.load_state_dict(ckpt['model_state_dict'], strict=False)
+    
+    if checkpoint_path and os.path.exists(checkpoint_path):
+        try:
+            ckpt = torch.load(checkpoint_path, map_location=device)
+            model.load_state_dict(ckpt['model_state_dict'], strict=False)
+            print("✓ Checkpoint loaded")
+        except:
+            print("⚠️ Using random weights")
+            
     model.eval()
 
-    # 2. Generate Symmetric Pairs
-    # Example: "2 + 3 = 5" and "3 + 2 = 5" (Commutative Symmetry)
-    # Or identity transformations in latent space
+    # 2. Define Isomeric Pairs (Semantically identical but structurally different)
     pairs = [
-        ("2 + 3 = 5", "3 + 2 = 5"),
-        ("1 + 1 = 2", "1 + 1 = 2"), # Identity
-        ("4 * 2 = 8", "2 * 4 = 8"),
-        ("9 - 5 = 4", "9 - 5 = 4")
+        ("2 + 3 = 5", "3 + 2 = 5"),     # Commutativity
+        ("4 * 2 = 8", "2 * 4 = 8"),     # Commutativity
+        ("10 - 3 = 7", "10 - 3 = 7"),   # Identity
+        ("5 + 5 = 10", "2 * 5 = 10"),   # Semantic Equivalence
+        ("9 / 3 = 3", "3 * 1 = 3")      # Cross-operation Symmetry
     ]
     
     latent_reps = []
-    labels = []
-    
-    latent_reps = []
-    labels = []
-    
-    peak_mem = 0.0
-    
-    def run_inference_pairs():
-         with torch.no_grad():
-            for i, (s1, s2) in enumerate(pairs):
-                for s, name in [(s1, f"Pair {i} A"), (s2, f"Pair {i} B")]:
-                    ids = torch.tensor([token_to_id[c] for c in s]).unsqueeze(0).to(device)
-                    # Get final state x after full sequence
-                    x = model.x0.expand(1, -1)
-                    v = model.v0.expand(1, -1)
-                    forces = model.embedding(ids)
-                    
-                    for t in range(ids.size(1)):
-                         _ = model.layers[0](x, v, forces[:, t])
-    
-    # Measure VRAM
-    peak_mem = measure_peak_memory(model, run_inference_pairs)
     
     with torch.no_grad():
-        for i, (s1, s2) in enumerate(pairs):
-            for s, name in [(s1, f"Pair {i} A"), (s2, f"Pair {i} B")]:
+        for s1, s2 in pairs:
+            for s in [s1, s2]:
                 ids = torch.tensor([token_to_id[c] for c in s]).unsqueeze(0).to(device)
-                # Get final state x after full sequence
                 x = model.x0.expand(1, -1)
                 v = model.v0.expand(1, -1)
                 forces = model.embedding(ids)
                 
+                # Full integration through the sequence
                 for t in range(ids.size(1)):
                     output = model.layers[0](x, v, forces[:, t])
                     x, v = output[0], output[1]
                 
                 latent_reps.append(x.cpu().numpy())
-                labels.append(name)
 
     data = np.concatenate(latent_reps, axis=0)
     
-    # 3. TSNE Visualization
-    tsne = TSNE(n_components=2, perplexity=2, random_state=42)
+    # 3. Dimensionality Reduction
+    # High perplexity for small datasets to maintain local structure
+    tsne = TSNE(n_components=2, perplexity=len(pairs)-1, random_state=42, init='pca', learning_rate='auto')
     reps_2d = tsne.fit_transform(data)
     
-    # 4. Plot
-    plt.figure(figsize=(10, 8))
-    sns.set_style("white")
-    
-    # Group pairs by color
-    colors = ['#E76F51', '#264653', '#2A9D8F', '#E9C46A']
+    # 4. Plotting
+    fig, ax = plt.subplots(figsize=(12, 10))
+    # Use a sophisticated palette
+    palette = sns.color_palette("husl", len(pairs))
     
     for i in range(len(pairs)):
-        idx_a = i * 2
-        idx_b = i * 2 + 1
+        idx_a, idx_b = i * 2, i * 2 + 1
+        color = palette[i]
         
-        plt.scatter(reps_2d[idx_a, 0], reps_2d[idx_a, 1], c=colors[i], s=200, label=f"Symmetry {i}", edgecolors='black')
-        plt.scatter(reps_2d[idx_b, 0], reps_2d[idx_b, 1], c=colors[i], s=200, marker='X', edgecolors='black')
+        # Plot points
+        ax.scatter(reps_2d[idx_a, 0], reps_2d[idx_a, 1], c=[color], s=350, 
+                  label=f"Sym {i}: {pairs[i][0]}", edgecolors='white', linewidths=2, zorder=3)
+        ax.scatter(reps_2d[idx_b, 0], reps_2d[idx_b, 1], c=[color], s=350, 
+                  marker='X', edgecolors='white', linewidths=2, zorder=3)
         
-        # Draw line between them (The 'Invariance Gap')
-        plt.plot([reps_2d[idx_a, 0], reps_2d[idx_b, 0]], 
-                 [reps_2d[idx_a, 1], reps_2d[idx_b, 1]], 
-                 c=colors[i], linestyle='--', alpha=0.5)
+        # Displacement Vector (The Invariance Gap)
+        ax.plot([reps_2d[idx_a, 0], reps_2d[idx_b, 0]], 
+                [reps_2d[idx_a, 1], reps_2d[idx_b, 1]], 
+                c=color, linestyle='--', alpha=0.6, linewidth=2, zorder=2)
+                
+        # Annotate
+        center = (reps_2d[idx_a] + reps_2d[idx_b]) / 2
+        ax.annotate(f"Gap: {np.linalg.norm(reps_2d[idx_a]-reps_2d[idx_b]):.2f}", 
+                   xy=center, xytext=(5, 5), textcoords="offset points", 
+                   fontsize=9, color=color, fontweight='bold')
 
-    plt.title(f"Isomeric Manifolds: Noether Invariance Map\n(Close proximity = High Semantic Symmetry) (Peak VRAM: {peak_mem:.1f} MB)", fontsize=14, fontweight='bold')
-    plt.legend()
+    ax.set_title("Manifold Noether Map: Visualization of Semantic Invariance", fontsize=18, fontweight='bold', pad=25)
+    ax.set_xlabel("Isomeric Component 1 (t-SNE)", fontsize=13)
+    ax.set_ylabel("Isomeric Component 2 (t-SNE)", fontsize=13)
+    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', title="Symmetry Groups")
+    ax.grid(alpha=0.2, linestyle=':')
     
-    results_dir = PROJECT_ROOT / "tests" / "benchmarks" / "results" / "symmetries"
-    results_dir.mkdir(parents=True, exist_ok=True)
-    out_path = results_dir / "noether_invariance.png"
-    plt.savefig(out_path, dpi=300, bbox_inches='tight')
-    plt.close()
+    logger.save_plot(fig, "noether_invariance_map.png")
     
-    # Save Metrics to JSON
-    import json
-    # Calculate Distances
-    distances = []
+    # 5. Metrics
+    gaps = []
     for i in range(len(pairs)):
-        idx_a = i * 2
-        idx_b = i * 2 + 1
-        dist = np.linalg.norm(reps_2d[idx_a] - reps_2d[idx_b])
-        distances.append({
-            "pair": f"{pairs[i][0]} <-> {pairs[i][1]}",
-            "euclidean_distance": float(dist)
-        })
-
-    metrics_data = {
-        "analysis_type": "Noether Invariance (Semantic Symmetry)",
-        "invariance_gaps": distances,
-        "peak_vram_mb": peak_mem
-    }
+        dist = np.linalg.norm(data[i*2] - data[i*2+1])
+        gaps.append({"pair": f"{pairs[i][0]} ~ {pairs[i][1]}", "v_space_distance": float(dist)})
+        
+    logger.save_json({
+        "num_symmetries_tested": len(pairs),
+        "mean_invariance_gap": float(np.mean([g['v_space_distance'] for g in gaps])),
+        "detailed_gaps": gaps
+    })
     
-    json_path = results_dir / "invariance_metrics.json"
-    with open(json_path, 'w') as f:
-        json.dump(metrics_data, f, indent=4)
-    
-    print(f"✅ Noether Invariance map saved to: {out_path}")
-    print(f"Data saved to: {json_path}")
+    print(f"✓ Noether Invariance Analysis Complete. Mean Gap: {np.mean([g['v_space_distance'] for g in gaps]):.4f}")
 
 if __name__ == "__main__":
-    ckpt = "checkpoints/v0.3/epoch_0.pt" # Placeholder
-    if len(sys.argv) > 1:
-        ckpt = sys.argv[1]
+    ckpt = sys.argv[1] if len(sys.argv) > 1 else None
     verify_noether_symmetries(ckpt)

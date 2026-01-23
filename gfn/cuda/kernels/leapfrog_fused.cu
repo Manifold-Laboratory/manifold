@@ -26,11 +26,22 @@ __device__ void compute_gamma_block(
     }
     __syncthreads();
     
+    // Saturation scale calculation
+    __shared__ float s_norm;
+    if (threadIdx.x == 0) {
+        float n_sq = 0.0f;
+        for (int r = 0; r < rank; r++) n_sq += s_U[r] * s_U[r];
+        s_norm = sqrtf(n_sq);
+    }
+    __syncthreads();
+    
+    float scale = 1.0f / (1.0f + s_norm);
+    
     for (int i = threadIdx.x; i < dim; i += blockDim.x) {
         float val = 0.0f;
         for (int r = 0; r < rank; r++) {
             float proj = s_U[r];
-            val += W[i * rank + r] * proj * proj;
+            val += W[i * rank + r] * proj * proj * scale;
         }
         s_gamma[i] = fminf(fmaxf(val, -5.0f), 5.0f);
     }

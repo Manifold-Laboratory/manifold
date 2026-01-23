@@ -180,20 +180,26 @@ Model:
 
 ---
 
-## 5. Integrator Comparison
+### 5. Integrator Comparison & Discovery
 
 **Benchmark**: `tests/benchmarks/core/benchmark_integrators.py`
 
-| **Integrator** | **Energy Drift (%)** | **Throughput (seq/s)** | **Stability** |
-|----------------|---------------------|----------------------|---------------|
-| Heun (RK2)     | 4.1                 | 3.24                 | Medium        |
-| RK4            | 4.4                 | 1.91                 | High          |
-| **Leapfrog**   | 4.6                 | **3.98**             | **High**      |
-| Symplectic     | 4.6                 | 3.69                 | High          |
+| **Integrator** | **Energy Drift (%)** | **Throughput (seq/s)** | **Status** |
+|----------------|---------------------|----------------------|------------|
+| **Forest-Ruth**| **0.000048**        | 1.7                  | **CHAMPION**|
+| Heun (RK2)     | 0.0004              | 3.24                 | Stable     |
+| Euler          | 0.0063              | 4.0                  | Stable     |
+| RK4            | 3283.05             | 1.91                 | FAILED     |
+| Leapfrog*      | 76790.26            | 3.98                 | BROKEN (CUDA)|
+| Yoshida*       | 77284.18            | 1.7                  | BROKEN (CUDA)|
 
-*Measured with dim=512, depth=6, heads=8, 50 integration steps without external forcing.*
+> [!CAUTION]
+> **CUDA Kernel Alert**: Integrators marked with `*` (Leapfrog, Yoshida, Symplectic) use fused CUDA kernels that were found to be missing the **Norm-based Saturation** term. This caused the $O(v^2)$ explosion observed above. **Fixed in v2.6.2**.
 
-**Recommendation**: **Leapfrog** (default) for optimal speed/stability trade-off.
+> [!IMPORTANT]
+> **The Forest-Ruth Discovery**: 4th-order Symplectic integration (Forest-Ruth) is the absolute gold standard for Manifold GFN. It handles the "Piecewise Riemannian" logical singularities with near-perfect energy conservation, even when high-order Runge-Kutta fails.
+
+**Recommendation**: **Forest-Ruth** for maximum reasoning precision, **Heun** for general stability, **Leapfrog** (after fix) for speed.
 
 ---
 

@@ -1,0 +1,17 @@
+{
+    "benchmark": "trajectories",
+    "category": "viz",
+    "timestamp": "2026-01-23T04:54:00.523317",
+    "hardware": {
+        "device": "NVIDIA GeForce GTX 1650",
+        "torch_version": "2.6.0+cu124"
+    },
+    "data": {
+        "vram_comparison": {
+            "gfn": 207.33740234375,
+            "transformer": 208.02392578125
+        },
+        "trajectory_smoothness": 12.905014038085938,
+        "transformer_jitter": 3.076321840286255
+    }
+}

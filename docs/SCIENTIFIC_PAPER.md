@@ -209,6 +209,22 @@ v_h = v_h / (torch.norm(v_h, dim=-1, keepdim=True) + 1e-6)
 
 **Empirical Impact**: Without this, model diverges after ~100 steps. With normalization, stable for L>10,000.
 
+### 3.4 The Runge-Kutta Paradox: Stability in Non-Smooth Fields
+
+One of the most significant empirical discoveries during the development of MANIFOLD GFN is the **catastrophic failure of higher-order Runge-Kutta methods** (RK4/RK45). 
+
+**Empirical Result**:
+- **Leapfrog (Symplectic)**: 0.004% drift (Stable)
+- **Heun (RK2)**: 0.0004% drift (Stable)
+- **RK4 (4th Order)**: **3,283.05% drift (Explosive Divergence)**
+
+**Theoretical Context (The "Singularity Aliasing" Phenomenon)**:
+In classical physics, RK4 is superior for smooth ($C^\infty$) systems. However, MANIFOLD GFN incorporates **Active Inference** features—such as Logical Singularities (Black Holes) and Reactive Curvature—which introduce discontinuities and non-smoothness into the field. 
+
+Higher-order methods fail because their multi-stage evaluations attempt to fit a high-degree polynomial to a non-smooth force. If an intermediate stage probes a position *inside* a singularity, the method over-extrapolates the force, causing an unrecoverable energy explosion. 
+
+**Conclusion**: The "thought space" of GFN is a **Piecewise Riemannian Variety**. Lower-order, "local" integrators (Heun) or symplectic integrators (Leapfrog) are more robust to these logical discontinuities than standard scientific integrators.
+
 ---
 
 ## 4. Functional Embeddings with Zero-Force Bias

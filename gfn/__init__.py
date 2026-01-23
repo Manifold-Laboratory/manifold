@@ -33,13 +33,22 @@ from .adjoint import AdjointManifold
 from .layers import MLayer as GLayer  # Alias
 from .layers import MLayer, ParallelMLayer, RiemannianGating
 
-# Geometry - All integrators
-from .geometry import (
-    LowRankChristoffel,
+# Geometry
+from .geometry import LowRankChristoffel
+
+# Integrators
+from .integrators import (
     HeunIntegrator,
     RK4Integrator,
     SymplecticIntegrator,
     LeapfrogIntegrator,
+    YoshidaIntegrator,
+    DormandPrinceIntegrator,
+    EulerIntegrator,
+    ForestRuthIntegrator,
+    OmelyanIntegrator,
+    CouplingFlowIntegrator,
+    NeuralIntegrator,
 )
 
 # Loss Functions
@@ -63,17 +72,28 @@ from .mixed_dataset import MixedHFDataset
 from .safety import GPUMonitor
 
 # Registry
+# Registry
 INTEGRATORS = {
+    'euler': EulerIntegrator,
     'heun': HeunIntegrator,
     'rk4': RK4Integrator,
+    'rk45': DormandPrinceIntegrator, # Alias for DP
     'symplectic': SymplecticIntegrator,
     'leapfrog': LeapfrogIntegrator,
+    'yoshida': YoshidaIntegrator,
+    'forest_ruth': ForestRuthIntegrator,
+    'omelyan': OmelyanIntegrator,
+    'coupling': CouplingFlowIntegrator,
+    'neural': NeuralIntegrator,
 }
 
 __all__ = [
     "GFN",
     "GLayer", "RiemannianGating",
-    "LowRankChristoffel", "HeunIntegrator", "RK4Integrator", "SymplecticIntegrator", "LeapfrogIntegrator",
+    "LowRankChristoffel", 
+    "HeunIntegrator", "RK4Integrator", "SymplecticIntegrator", "LeapfrogIntegrator", 
+    "YoshidaIntegrator", "DormandPrinceIntegrator", "EulerIntegrator",
+    "ForestRuthIntegrator", "OmelyanIntegrator", "CouplingFlowIntegrator", "NeuralIntegrator",
     "INTEGRATORS",
     "hamiltonian_loss", "geodesic_regularization", "GFNLoss",
     "RiemannianAdam", "ManifoldSGD",

@@ -1,3 +1,17 @@
+"""
+Standardized Integrator Performance Analysis
+============================================
+
+Scientific evaluation of all implemented integrators:
+- Symplectic: Leapfrog, Yoshida (4th), ForestRuth (4th), Omelyan (4th), Coupling (Inf).
+- Runge-Kutta: Euler (1st), Heun (2nd), RK4 (4th), DormandPrince (5th).
+- Neural: NeuralIntegrator (Learnable).
+
+Metrics:
+- Cumulative Energy Drift (%)
+- Inference Throughput (seq/s)
+- Peak VRAM (MB)
+"""
 
 import torch
 import numpy as np
@@ -12,146 +26,125 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from gfn.model import Manifold
-from tests.benchmarks.bench_utils import measure_peak_memory
+from tests.benchmarks.bench_utils import ResultsLogger, PerformanceStats
 
-def run_integrator_benchmark():
+def run_integrator_suite():
+    logger = ResultsLogger("integrators", category="core")
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"[*] Benchmarking Symplectic Integrators on {device}...")
     
-    integrators = ['heun', 'rk4', 'rk45', 'leapfrog', 'symplectic']
-    results = {
-        'integrator': [],
-        'drift_mean': [],
-        'drift_std': [],
-        'throughput': [],
-        'vram': []
-    }
+    # All implemented integrators
+    integrators = [
+        'euler', 'heun', 'rk4', 'rk45', 
+        'leapfrog', 'symplectic', 'yoshida', 'forest_ruth', 'omelyan',
+        'coupling', 'neural'
+    ]
     
     # Config
     vocab_size = 64
     dim = 512
-    depth = 6
-    heads = 8
-    seq_len = 100
+    depth = 4   # Shallower for faster stats
+    heads = 1   # Single head for pure integrator drift test
+    seq_len = 128
     batch_size = 16
-    steps = 50 # Number of batches to measure
+    drift_steps = 100 # Steps to measure drift
     
+    results = []
+
+    print(f"🚀 Starting Integrator Suite on {device}...")
+
     for integ in integrators:
-        print(f"\n[*] Testing Integrator: {integ.upper()}")
-        
+        print(f"\n📊 Testing: {integ.upper()}")
         try:
             model = Manifold(
-                vocab_size=vocab_size, 
-                dim=dim, 
-                depth=depth, 
-                heads=heads, 
+                vocab_size=vocab_size,
+                dim=dim,
+                depth=depth,
+                heads=heads,
                 integrator_type=integ
             ).to(device)
             model.eval()
-            
-            # --- 1. VRAM Measurement ---
+
+            # 1. Performance Statistics
             dummy_input = torch.randint(0, vocab_size, (batch_size, seq_len)).to(device)
-            # define closure for measurement
-            def forward_pass():
+            
+            def run_inference():
                 with torch.no_grad():
-                     model(dummy_input)
-                     
-            peak_mem = measure_peak_memory(model, forward_pass)
-            results['vram'].append(peak_mem)
-            print(f"   Peak VRAM: {peak_mem:.1f} MB")
+                    model(dummy_input)
+
+            vram = PerformanceStats.measure_peak_memory(model, run_inference)
             
-            # --- 2. Energy Drift Analysis ---
-            # We measure drift over a long sequence to see stability
-            # Manually stepping through layers to check v-norm conservation
-            
-            drift_values = []
-            
-            x = model.x0.expand(batch_size, -1)
-            v = model.v0.expand(batch_size, -1)
-            v_start_norm = v.norm(dim=-1).mean().item()
-            
-            # Create a long "thought" trajectory (no force)
-            # F=0 => Should conserve energy exactly if symplectic
+            # Throughput
+            start = time.time()
             with torch.no_grad():
-                for _ in range(50): # 50 steps deep
-                    for layer in model.layers:
-                         # Force = 0
-                        out = layer(x, v, force=None)
-                        x, v = out[0], out[1]
+                for _ in range(10): model(dummy_input)
+            tput = (10 * batch_size) / (time.time() - start)
+
+            # 2. Energy Drift (The Physics Metric)
+            # Concept: In a system with Force=0, velocity magnitude should be constant.
+            # Any change is numerical drift.
+            
+            with torch.no_grad():
+                # Get initial state from internal embeddings
+                x = torch.zeros(batch_size, dim).to(device) # Simplified initial state
+                v = torch.randn(batch_size, dim).to(device)
+                v = v / (v.norm(dim=-1, keepdim=True) + 1e-6) # Unit magnitude
+                
+                v_start_norm = v.norm(dim=-1).mean().item()
+                
+                # Iterate through drift steps using a single layer representing the dynamics
+                # We isolate the integrator to avoid random projections distorting scientific drift measurement
+                layer = model.layers[0]
+                integrator = layer.integrators[0]
+                
+                for _ in range(drift_steps):
+                    # Call integrator directly: (x, v, force=None)
+                    x, v = integrator(x, v, force=None)
                 
                 v_end_norm = v.norm(dim=-1).mean().item()
-                # Cumulative energy drift proxy: |v_end - v_start| / v_start
-                # This is cumulative drift over all 50 steps, not per-step drift
-                drift = abs(v_end_norm - v_start_norm) / (v_start_norm + 1e-8)
-                results['drift_mean'].append(drift * 100) # Percentage
-                results['drift_std'].append(0.0) # Single run for drift
-                print(f"   Cumulative Energy Drift (50 steps): {drift*100:.4f}%")
+                drift_percent = abs(v_end_norm - v_start_norm) / (v_start_norm + 1e-8) * 100
 
-            # --- 3. Throughput ---
-            # Run X batches
-            start_time = time.time()
-            with torch.no_grad():
-                for _ in range(steps):
-                    model(dummy_input)
-            end_time = time.time()
+            print(f"   Drift: {drift_percent:.6f}% | Memory: {vram:.1f} MB | Speed: {tput:.1f} seq/s")
             
-            total_time = end_time - start_time
-            throughput = (steps * batch_size) / total_time
-            results['throughput'].append(throughput)
-            results['integrator'].append(integ)
-            
-            print(f"   Throughput: {throughput:.1f} seq/s")
-            
+            results.append({
+                "Integrator": integ,
+                "Type": "Symplectic" if integ in ['leapfrog', 'symplectic', 'yoshida', 'forest_ruth', 'omelyan', 'coupling'] else "Standard",
+                "Drift (%)": drift_percent,
+                "Inference Speed": tput,
+                "VRAM (MB)": vram
+            })
+
         except Exception as e:
-            print(f"[*] Failed {integ}: {e}")
-            results['integrator'].append(integ)
-            results['drift_mean'].append(None)
-            results['drift_std'].append(None)
-            results['throughput'].append(None)
-            results['vram'].append(None)
+            print(f"   ❌ Failed: {e}")
+            continue
 
-    # === Visualization ===
-    print("\n[*] Generating Benchmark Plot...")
-    res_dir = PROJECT_ROOT / "tests/benchmarks/results/integrators"
-    res_dir.mkdir(parents=True, exist_ok=True)
+    # 3. Save & Plot
+    logger.save_json(results)
+    
+    import pandas as pd
+    df = pd.DataFrame(results)
     
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-    sns.set_style("whitegrid")
     
-    # filter failed
-    valid_indices = [i for i, v in enumerate(results['drift_mean']) if v is not None]
-    valid_integs = [results['integrator'][i] for i in valid_indices]
+    # Plot colors by type
+    palette = {"Symplectic": "#2A9D8F", "Standard": "#E76F51", "Neural": "#E9C46A"}
     
-    # 1. Energy Drift
-    drifts = [results['drift_mean'][i] for i in valid_indices]
-    sns.barplot(x=valid_integs, y=drifts, ax=axes[0], palette="magma")
-    axes[0].set_title("Energy Drift (Lower is Better)")
-    axes[0].set_ylabel("Drift % (50 steps)")
-    axes[0].set_yscale("log") # Drift can vary wildly
+    sns.barplot(data=df, x="Integrator", y="Drift (%)", ax=axes[0], palette="viridis")
+    axes[0].set_title("Numerical Energy Drift")
+    axes[0].set_yscale("log")
+    axes[0].set_xticklabels(axes[0].get_xticklabels(), rotation=45)
     
-    # 2. VRAM
-    vrams = [results['vram'][i] for i in valid_indices]
-    sns.barplot(x=valid_integs, y=vrams, ax=axes[1], palette="viridis")
-    axes[1].set_title("Peak VRAM Usage")
-    axes[1].set_ylabel("MB")
+    sns.barplot(data=df, x="Integrator", y="Inference Speed", ax=axes[1], palette="magma")
+    axes[1].set_title("Throughput (seq/s)")
+    axes[1].set_xticklabels(axes[1].get_xticklabels(), rotation=45)
     
-    # 3. Throughput
-    thrus = [results['throughput'][i] for i in valid_indices]
-    sns.barplot(x=valid_integs, y=thrus, ax=axes[2], palette="rocket")
-    axes[2].set_title("Inference Speed")
-    axes[2].set_ylabel("Sequences / sec")
+    sns.barplot(data=df, x="Integrator", y="VRAM (MB)", ax=axes[2], palette="rocket")
+    axes[2].set_title("VRAM Consumption")
+    axes[2].set_xticklabels(axes[2].get_xticklabels(), rotation=45)
     
-    plt.suptitle("Manifold Integrator Benchmark: Symplectic vs Runge-Kutta", fontsize=16)
     plt.tight_layout()
-    plt.savefig(res_dir / "integrator_comparison.png")
+    logger.save_plot(fig, "integrator_comparison.png")
     
-    # Save JSON
-    import json
-    json_path = res_dir / "integrator_metrics.json"
-    with open(json_path, 'w') as f:
-        json.dump(results, f, indent=4)
-        
-    print(f"[*] Results saved to {res_dir}")
+    return df
 
 if __name__ == "__main__":
-    run_integrator_benchmark()
+    run_integrator_suite()

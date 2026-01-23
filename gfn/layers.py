@@ -1,6 +1,11 @@
 import torch
 import torch.nn as nn
-from .geometry import LowRankChristoffel, SymplecticIntegrator, RK4Integrator, HeunIntegrator, LeapfrogIntegrator, DormandPrinceIntegrator, ReactiveChristoffel, HyperChristoffel, EuclideanChristoffel, HyperbolicChristoffel, SphericalChristoffel
+from .geometry import LowRankChristoffel, ReactiveChristoffel, HyperChristoffel, EuclideanChristoffel, HyperbolicChristoffel, SphericalChristoffel
+from .integrators import (
+    SymplecticIntegrator, RK4Integrator, HeunIntegrator, LeapfrogIntegrator, 
+    YoshidaIntegrator, DormandPrinceIntegrator, EulerIntegrator,
+    ForestRuthIntegrator, OmelyanIntegrator, CouplingFlowIntegrator, NeuralIntegrator
+)
 from .scan import parallel_scan
 
 class RiemannianGating(nn.Module):
@@ -184,8 +189,21 @@ class MLayer(nn.Module):
                 integ = DormandPrinceIntegrator(self.christoffels[i], dt=0.1)
              elif integrator_type == 'heun':
                 integ = HeunIntegrator(self.christoffels[i], dt=0.1)
+             elif integrator_type == 'euler':
+                 integ = EulerIntegrator(self.christoffels[i], dt=0.1)
              elif integrator_type == 'leapfrog':
                 integ = LeapfrogIntegrator(self.christoffels[i], dt=0.1)
+             elif integrator_type == 'yoshida':
+                 integ = YoshidaIntegrator(self.christoffels[i], dt=0.1)
+             elif integrator_type == 'forest_ruth':
+                 integ = ForestRuthIntegrator(self.christoffels[i], dt=0.1)
+             elif integrator_type == 'omelyan':
+                 integ = OmelyanIntegrator(self.christoffels[i], dt=0.1)
+             elif integrator_type == 'coupling':
+                 integ = CouplingFlowIntegrator(self.christoffels[i], dt=0.1)
+             elif integrator_type == 'neural':
+                 # Neural integrator needs dim to build its controller
+                 integ = NeuralIntegrator(self.christoffels[i], dt=0.1, dim=self.head_dim)
              else:
                 integ = SymplecticIntegrator(self.christoffels[i], dt=0.1)
              self.integrators.append(integ)
@@ -280,8 +298,8 @@ class MLayer(nn.Module):
                 dt_effective = nn.functional.softplus(self.dt_params[i]) * gate
                 
                 # Pass effective dt via dt_scale (assuming integrator uses dt * scale)
-                # Since integrator has base dt=0.1, we scale relative to that.
-                scale = dt_effective / 0.1
+                # Scale relative to the configured base timestep
+                scale = dt_effective / self.base_dt
                 gate_outputs.append(gate)
             
             # Collect geometry metadata for the loss function
@@ -295,9 +313,17 @@ class MLayer(nn.Module):
             # Pure integration - integrator returns absolute next state
             x_h, v_h = self.integrators[i](x_heads[i], v_heads[i], force=f_heads[i], dt_scale=scale)
             
-            # Velocity normalization (preserves direction/memory, controls magnitude)
-            # This prevents vanishing memory while maintaining stability
-            v_h = v_h / (torch.norm(v_h, dim=-1, keepdim=True) + 1e-6)
+            # Soft Velocity Norm (The Solution for v2.6.3)
+            # Allows oscillation (magnitude dynamics) without explosion.
+            # Max speed = 5.0 (pendulum length constraint)
+            v_mag = torch.norm(v_h, dim=-1, keepdim=True)
+            max_v = 5.0
+            
+            # Differentiable clamping: v * min(1, max/mag)
+            # Gradients flow 100% when v < max.
+            # Gradients are dampened (but not killed) when v > max.
+            scale = torch.clamp(max_v / (v_mag + 1e-6), max=1.0)
+            v_h = v_h * scale
             
             # Store absolute states (NOT deltas)
             x_outs.append(x_h)
@@ -507,7 +533,8 @@ class FractalMLayer(nn.Module):
         
         # 3. Tunneling condition (Smooth sigmoid gate)
         # alpha is 0 if curvature is low (flat), rises to 1 when r > threshold
-        tunnel_gate = torch.sigmoid((curvature_r - self.threshold) * 5.0)
+        # GRADIENT FIX: Increase baseline to 0.3 for stronger micro_manifold signal
+        tunnel_gate = 0.3 + 0.7 * torch.sigmoid((curvature_r - self.threshold) * 5.0)
         
         # 4. Micro-evolution (Zooming in)
         # We use the macro-updated state as input to the sub-manifold

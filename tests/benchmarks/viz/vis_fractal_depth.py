@@ -1,3 +1,10 @@
+"""
+Professional Fractal Manifold Visualization
+===========================================
+Visualizing the nested geometric structures (FractalMLayer) that enable 
+infinite resolution and recursive logic in GFN.
+"""
+
 import torch
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -11,125 +18,92 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from gfn.model import Manifold
-from tests.benchmarks.bench_utils import measure_peak_memory
+from tests.benchmarks.bench_utils import ResultsLogger, PerformanceStats
 
-def visualize_fractal_zoom(checkpoint_path):
+def visualize_fractal_zoom(checkpoint_path=None):
+    logger = ResultsLogger("fractals", category="viz")
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print("💠 Visualizing Fractal Tunneling (Recursive Zoom)...")
+    
+    print("💠 Visualizing Professional Fractal Tunneling (Recursive Zoom)...")
     
     # 1. Setup
     vocab = "0123456789+-*= "
-    # Force fractal config to ensure FractalMLayer is used
     physics_config = {
         'embedding': {'type': 'functional', 'mode': 'binary', 'coord_dim': 16},
-        'fractal': {'enabled': True, 'depth': 2, 'threshold': 0.0}, # Threshold 0 to force activity
+        'fractal': {'enabled': True, 'depth': 2, 'threshold': 0.0},
         'active_inference': {'enabled': True}
     }
     model = Manifold(vocab_size=len(vocab), dim=512, depth=1, heads=1, physics_config=physics_config).to(device)
     
-    if os.path.exists(checkpoint_path):
-        print(f"Loading checkpoint: {checkpoint_path}")
-        ckpt = torch.load(checkpoint_path, map_location=device)
+    if checkpoint_path and os.path.exists(checkpoint_path):
         try:
-             # Handle 'model_state_dict' key
+            ckpt = torch.load(checkpoint_path, map_location=device)
             state_dict = ckpt['model_state_dict'] if 'model_state_dict' in ckpt else ckpt
             model.load_state_dict(state_dict, strict=False)
+            print("✓ Checkpoint loaded")
         except:
-             print("Warning: Weight mismatch, using random weights.")
-    model.eval()
-
-    layer = model.layers[0]
-    # In FractalMLayer, we have macro_manifold and micro_manifold
-    macro = layer.macro_manifold
-    micro = layer.micro_manifold
-    
-    # 2. Generate Grid
-    # We'll look at a small window to see "Recursive Self-Similarity"
-    grid_size = 40
-    
-    # Macro scale: [-2, 2]
-    # Micro scale: [-0.1, 0.1] (Zoomed in 20x)
-    
-    fig, axes = plt.subplots(1, 2, figsize=(16, 7))
-    sns.set_style("white")
-    
-    peak_mem = 0.0
-    
-    with torch.no_grad():
-        # Measure VRAM for single point calculation
-        def dummy_forward():
-            v = torch.zeros(1, 512).to(device)
-            macro.christoffels[0](v)
-            micro.christoffels[0](v)
+            print("⚠️ Using random weights")
             
-        peak_mem = measure_peak_memory(model, dummy_forward)
-        
-        # Plot Macro
-        x_m = np.linspace(-2, 2, grid_size)
-        y_m = np.linspace(-2, 2, grid_size)
-        X_m, Y_m = np.meshgrid(x_m, y_m)
-        mag_m = np.zeros((grid_size, grid_size))
-        
-        for i in range(grid_size):
-            for j in range(grid_size):
-                v = torch.zeros(1, 512).to(device)
-                v[0, 0] = X_m[i, j]
-                v[0, 1] = Y_m[i, j]
-                gamma = macro.christoffels[0](v)
-                mag_m[i, j] = torch.norm(gamma).item()
-        
-        axes[0].imshow(mag_m, extent=[-2, 2, -2, 2], origin='lower', cmap='viridis')
-        axes[0].set_title("Macro-Manifold (Global Context)", fontsize=14, fontweight='bold')
-        axes[0].set_xlabel("v_0")
-        axes[0].set_ylabel("v_1")
-        
-        # Plot Micro
-        x_z = np.linspace(-0.2, 0.2, grid_size)
-        y_z = np.linspace(-0.2, 0.2, grid_size)
-        X_z, Y_z = np.meshgrid(x_z, y_z)
-        mag_z = np.zeros((grid_size, grid_size))
-        
-        for i in range(grid_size):
-            for j in range(grid_size):
-                v = torch.zeros(1, 512).to(device)
-                v[0, 0] = X_z[i, j]
-                v[0, 1] = Y_z[i, j]
-                # In FractalMLayer, micro is triggered when macro curvature is high
-                # Here we just visualize the micro manifold structure directly
-                gamma = micro.christoffels[0](v)
-                mag_z[i, j] = torch.norm(gamma).item()
-        
-        axes[1].imshow(mag_z, extent=[-0.2, 0.2, -0.2, 0.2], origin='lower', cmap='plasma')
-        axes[1].set_title("Micro-Manifold (Local Resolution Zoom)", fontsize=14, fontweight='bold')
-        axes[1].set_xlabel("v_0 (Zoomed)")
-        axes[1].set_ylabel("v_1 (Zoomed)")
+    model.eval()
+    layer = model.layers[0]
+    macro, micro = layer.macro_manifold, layer.micro_manifold
+    
+    # 2. Render Grids
+    grid_res = 50
+    
+    print("  [*] Rendering Fractal Scales...")
+    with torch.no_grad():
+        # Macro Scale
+        lim_m = 2.5
+        xm, ym = np.linspace(-lim_m, lim_m, grid_res), np.linspace(-lim_m, lim_m, grid_res)
+        Xm, Ym = np.meshgrid(xm, ym)
+        v_m = torch.zeros(grid_res*grid_res, 512).to(device)
+        for i in range(grid_res):
+            for j in range(grid_res):
+                v_m[i*grid_res+j, 0], v_m[i*grid_res+j, 1] = Xm[i, j], Ym[i, j]
+        mag_m = torch.norm(macro.christoffels[0](v_m), dim=-1).view(grid_res, grid_res).cpu().numpy()
 
-    plt.suptitle("Fractal Manifolds: Recursive Tunneling & Zoom\n(Nested Geometric Resolution for Complex Logic) (Peak VRAM: {:.1f} MB)".format(peak_mem), fontsize=16, fontweight='bold')
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        # Micro Scale (10x Zoom)
+        lim_z = 0.25
+        xz, yz = np.linspace(-lim_z, lim_z, grid_res), np.linspace(-lim_z, lim_z, grid_res)
+        Xz, Yz = np.meshgrid(xz, yz)
+        v_z = torch.zeros(grid_res*grid_res, 512).to(device)
+        for i in range(grid_res):
+            for j in range(grid_res):
+                v_z[i*grid_res+j, 0], v_z[i*grid_res+j, 1] = Xz[i, j], Yz[i, j]
+        mag_z = torch.norm(micro.christoffels[0](v_z), dim=-1).view(grid_res, grid_res).cpu().numpy()
+
+    # 3. Visualization
+    fig, axes = plt.subplots(1, 2, figsize=(18, 8))
     
-    results_dir = PROJECT_ROOT / "tests" / "benchmarks" / "results" / "fractals"
-    results_dir.mkdir(parents=True, exist_ok=True)
-    out_path = results_dir / "fractal_zoom_comparison.png"
-    plt.savefig(out_path, dpi=300, bbox_inches='tight')
-    plt.close()
+    im1 = axes[0].imshow(mag_m, extent=[-lim_m, lim_m, -lim_m, lim_m], cmap='viridis', origin='lower')
+    axes[0].set_title("Macro-Geometry: Global Stability", fontsize=15, fontweight='bold')
+    axes[0].set_xlabel("v₀ (State Component)")
+    axes[0].set_ylabel("v₁")
+    fig.colorbar(im1, ax=axes[0], label='Metric Curvature')
     
-    # Save Metrics to JSON
-    import json
-    metrics_data = {
-        "analysis_type": "Fractal Recursive Zoom",
-        "macro_mean_curvature": float(mag_m.mean()),
-        "micro_mean_curvature": float(mag_z.mean()),
-        "max_micro_complexity": float(mag_z.max()),
-        "zoom_factor": 20.0,
-        "peak_vram_mb": peak_mem
-    }
+    im2 = axes[1].imshow(mag_z, extent=[-lim_z, lim_z, -lim_z, lim_z], cmap='magma', origin='lower')
+    axes[1].set_title("Micro-Geometry: 10x Focal Zoom", fontsize=15, fontweight='bold')
+    axes[1].set_xlabel("v₀ (Zoomed)")
+    fig.colorbar(im2, ax=axes[1], label='Local Resolution')
+
+    fig.suptitle("Fractal Manifold Depth: Multi-Scale Geometric Reasoning", fontsize=22, fontweight='bold', y=0.98)
+    logger.save_plot(fig, "fractal_depth_comparison.png")
     
-    json_path = results_dir / "fractal_metrics.json"
-    with open(json_path, 'w') as f:
-        json.dump(metrics_data, f, indent=4)
-        
-    print(f"✅ Fractal Zoom comparison saved to: {out_path}")
-    print(f"Data saved to: {json_path}")
+    # 4. Metrics
+    logger.save_json({
+        "zoom_factor": 10.0,
+        "grid_resolution": f"{grid_res}x{grid_res}",
+        "macro_mean_force": float(np.mean(mag_m)),
+        "micro_peak_resolution": float(np.max(mag_z)),
+        "layer_type": "FractalMLayer (NestedSymplectic)"
+    })
+    
+    print(f"✓ Fractal Depth Analysis Complete. Micro Complexity: {np.max(mag_z):.4f}")
+
+if __name__ == "__main__":
+    ckpt = sys.argv[1] if len(sys.argv) > 1 else None
+    visualize_fractal_zoom(ckpt)
 
 if __name__ == "__main__":
     ckpt = "checkpoints/v0.3/epoch_0.pt"
