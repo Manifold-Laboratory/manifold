@@ -30,7 +30,7 @@ class Manifold(nn.Module):
     """
     
     
-    def __init__(self, vocab_size, dim=256, depth=4, rank=32, heads=4, integrator_type='heun', use_scan=False, physics_config=None):
+    def __init__(self, vocab_size, dim=256, depth=4, rank=32, heads=4, integrator_type='yoshida', use_scan=False, physics_config=None):
         super().__init__()
         self.dim = dim
         self.depth = depth

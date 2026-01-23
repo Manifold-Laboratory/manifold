@@ -1,7 +1,24 @@
+# Core Dependencies
 torch>=2.0.0
-transformers
-datasets
-pynvml
-matplotlib
-numpy
-torchdiffeq
+numpy>=1.20.0
+tqdm
+
+# Hugging Face Ecosystem
+transformers>=4.30.0
+datasets>=2.0.0
+huggingface-hub
+
+# ODE Solvers
+torchdiffeq>=0.2.0
+
+# Visualization
+matplotlib>=3.5.0
+seaborn>=0.12.0
+scikit-learn
+
+# GPU Monitoring (optional)
+nvidia-ml-py3  # Replaces deprecated pynvml
+
+# Development Tools (optional)
+pytest
+black

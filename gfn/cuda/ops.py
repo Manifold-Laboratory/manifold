@@ -11,58 +11,74 @@ import platform
 try:
     from torch.utils.cpp_extension import load
     
-    # Build path
-    cuda_dir = os.path.dirname(os.path.abspath(__file__))
+    # Build path (Allow override via env var for custom builds/deployments)
+    cuda_dir = os.environ.get('GFN_CUDA_PATH')
+    if cuda_dir is None:
+        cuda_dir = os.path.dirname(os.path.abspath(__file__))
+    else:
+        print(f"[GFN CUDA] Using custom CUDA source path: {cuda_dir}")
 
     # Platform-specific compiler setup
     is_windows = platform.system() == 'Windows'
     
-    if is_windows:
-        # On Windows, try to find MSVC (but don't hardcode the path)
-        # PyTorch's build system will find it automatically
-        pass
-    
-    # Load extension (JIT compilation on first import)
-    # Try loading pre-compiled extension first
+    # Load extension logic
+    # 1. Try direct import (e.g. if compiled via setup.py install/develop or in CWD)
     try:
-        # Implicit relative import for when installed as package
-        from . import gfn_cuda
+        import gfn_cuda
+        CUDA_AVAILABLE = True
+        print("[GFN CUDA] Custom kernels loaded successfully (direct import)")
     except ImportError:
-        try:
-            # Absolute import
-            import gfn_cuda
-        except ImportError:
-             # Fallback to JIT compilation if pre-compiled not found
-             print("[GFN CUDA] Pre-compiled extension not found, attempting JIT compilation...")
-             
-             # Platform-specific compilation flags
-             if is_windows:
-                 extra_cflags = ['/O2', '/DNOMINMAX']
-                 extra_cuda_cflags = ['-O3', '--use_fast_math']
-             else:
-                 extra_cflags = ['-O3', '-fPIC']
-                 extra_cuda_cflags = ['-O3', '--use_fast_math', '--compiler-options', "'-fPIC'"]
-             
-             gfn_cuda = load(
-                name='gfn_cuda_v2_6',
-                sources=[
-                    os.path.join(cuda_dir, 'cuda_kernels.cpp'),
-                    os.path.join(cuda_dir, 'kernels', 'christoffel_fused.cu'),
-                    os.path.join(cuda_dir, 'kernels', 'leapfrog_fused.cu'),
-                    os.path.join(cuda_dir, 'kernels', 'parallel_scan_fused.cu'),
-                ],
-                extra_cuda_cflags=extra_cuda_cflags,
-                extra_cflags=extra_cflags,
-                verbose=True
-            )
-    
-    CUDA_AVAILABLE = True
-    print("[GFN CUDA] Custom kernels loaded successfully")
-    
+         # 2. JIT fallback
+         print("[GFN CUDA] Pre-compiled extension not found, attempting JIT compilation...")
+         
+         # Build path (Allow override via env var for custom builds/deployments)
+         cuda_dir = os.environ.get('GFN_CUDA_PATH')
+         if cuda_dir is None:
+            cuda_dir = os.path.dirname(os.path.abspath(__file__))
+         else:
+            print(f"[GFN CUDA] Using custom CUDA source path: {cuda_dir}")
+
+         # Platform-specific compilation flags
+         if is_windows:
+             extra_cflags = ['/O2']
+             extra_cuda_cflags = [
+                 '-O3', 
+                 '--use_fast_math', 
+                 '-allow-unsupported-compiler',
+                 '-D_ALLOW_COMPILER_SUBSTITUTIONS'
+             ]
+         else:
+             extra_cflags = ['-O3', '-fPIC']
+             extra_cuda_cflags = ['-O3', '--use_fast_math', '--compiler-options', "'-fPIC'"]
+         
+         
+         gfn_cuda = load(
+            name='gfn_cuda',
+            sources=[
+                os.path.join(cuda_dir, 'cuda_kernels.cpp'),
+                os.path.join(cuda_dir, 'src', 'geometry', 'christoffel_fused.cu'),
+                os.path.join(cuda_dir, 'src', 'integrators', 'leapfrog_fused.cu'),
+                os.path.join(cuda_dir, 'src', 'layers', 'parallel_scan_fused.cu'),
+            ],
+            extra_cuda_cflags=extra_cuda_cflags,
+            extra_cflags=extra_cflags,
+            verbose=True
+        )
+         CUDA_AVAILABLE = True
+         print("[GFN CUDA] JIT compilation successful")
 except Exception as e:
     CUDA_AVAILABLE = False
     print(f"[GFN CUDA] Failed to load custom kernels: {e}")
-    print("[GFN CUDA] Falling back to PyTorch implementation")
+    
+    # Try Triton as fallback (works on Windows!)
+    try:
+        import triton
+        from .triton_kernels import christoffel_fused_triton
+        print("[GFN CUDA] Using Triton kernels (Windows-compatible, ~50% speed of native CUDA)")
+        TRITON_AVAILABLE = True
+    except ImportError:
+        print("[GFN CUDA] Triton not available, falling back to PyTorch implementation")
+        TRITON_AVAILABLE = False
 
 
 def christoffel_fused(v, U, W, x=None, V_w=None, plasticity=0.0, sing_thresh=1.0, sing_strength=1.0):
@@ -98,7 +114,9 @@ def christoffel_fused(v, U, W, x=None, V_w=None, plasticity=0.0, sing_thresh=1.0
         if V_w is None:
             V_w = torch.empty(0, device=v.device, dtype=v.dtype)
             
-        return gfn_cuda.christoffel_fused(v, U, W, x, V_w, plasticity, sing_thresh, sing_strength)
+        # Use Autograd-compatible wrapper for both Training and Inference
+        from .autograd import christoffel_fused_autograd
+        return christoffel_fused_autograd(v, U, W, x, V_w, plasticity, sing_thresh, sing_strength)
     else:
         # PyTorch fallback
         proj = torch.matmul(v, U)  # [batch, rank]
@@ -138,6 +156,12 @@ def leapfrog_fused(x, v, f, U, W, dt, dt_scale=1.0):
         x_new, v_new: Updated position and velocity
     """
     if CUDA_AVAILABLE and x.is_cuda:
+        # CRITICAL: Kernels assume contiguous memory
+        x = x.contiguous()
+        v = v.contiguous()
+        f = f.contiguous()
+        U = U.contiguous()
+        W = W.contiguous()
         return gfn_cuda.leapfrog_fused(x, v, f, U, W, dt, dt_scale)
     else:
         # PyTorch fallback
@@ -153,5 +177,48 @@ def leapfrog_fused(x, v, f, U, W, dt, dt_scale=1.0):
         # Half-step velocity again
         gamma_v_half = christoffel_fused(v_half, U, W)
         v_new = v_half + 0.5 * effective_dt * (f - gamma_v_half)
+        
+        return x_new, v_new
+        
+def yoshida_fused(x, v, f, U, W, dt, dt_scale=1.0, V_w=None, plasticity=0.0, sing_thresh=1.0, sing_strength=1.0):
+    """
+    Fused Yoshida 4th-order integration step.
+    """
+    if CUDA_AVAILABLE and x.is_cuda:
+        from .autograd import yoshida_fused_autograd
+        return yoshida_fused_autograd(
+            x, v, f=f, U=U, W=W, V_w=V_w, 
+            dt=dt, dt_scale=dt_scale, 
+            plasticity=plasticity, sing_thresh=sing_thresh, sing_strength=sing_strength
+        )
+    else:
+        # PyTorch fallback (Legacy manual steps)
+        # Yoshida coefficients
+        w0 = -1.7024143839193153
+        w1 = 1.3512071919596578
+        c1 = c4 = w1 / 2.0
+        c2 = c3 = (w0 + w1) / 2.0
+        d1 = d3 = w1
+        d2 = w0
+        eff_dt = dt * dt_scale
+        
+        # Substep 1
+        x1 = x + c1 * eff_dt * v
+        gamma1 = christoffel_fused(v, U, W, x1, V_w, plasticity, sing_thresh, sing_strength)
+        v1 = v + d1 * eff_dt * (f - gamma1)
+        
+        # Substep 2
+        x2 = x1 + c2 * eff_dt * v1
+        gamma2 = christoffel_fused(v1, U, W, x2, V_w, plasticity, sing_thresh, sing_strength)
+        v2 = v1 + d2 * eff_dt * (f - gamma2)
+        
+        # Substep 3
+        x3 = x2 + c3 * eff_dt * v2
+        gamma3 = christoffel_fused(v2, U, W, x3, V_w, plasticity, sing_thresh, sing_strength)
+        v3 = v2 + d3 * eff_dt * (f - gamma3)
+        
+        # Final
+        x_new = x3 + c4 * eff_dt * v3
+        v_new = v3
         
         return x_new, v_new

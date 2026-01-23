@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from .geometry import LowRankChristoffel, SymplecticIntegrator, RK4Integrator, HeunIntegrator, LeapfrogIntegrator, DormandPrinceIntegrator, ReactiveChristoffel, HyperChristoffel, EuclideanChristoffel, HyperbolicChristoffel, SphericalChristoffel
+from .geometry import LowRankChristoffel, SymplecticIntegrator, RK4Integrator, HeunIntegrator, LeapfrogIntegrator, YoshidaIntegrator, DormandPrinceIntegrator, ReactiveChristoffel, HyperChristoffel, EuclideanChristoffel, HyperbolicChristoffel, SphericalChristoffel
 from .scan import parallel_scan
 
 class RiemannianGating(nn.Module):
@@ -62,7 +62,7 @@ class MLayer(nn.Module):
         
         # 1. Pre-LayerNorm for stability (Standard in modern Transformers)
         self.norm_x = nn.LayerNorm(dim)
-        self.norm_v = nn.LayerNorm(dim)
+        # norm_v removed to preserve momentum/energy magnitude signal
         
         # 2. Independent or Symmetric Geodesic Dynamics per Head
         # Each head learns its own manifold geometry (Christoffel symbols)
@@ -178,16 +178,19 @@ class MLayer(nn.Module):
         for i in range(heads):
             # Integrator setup
              if integrator_type == 'rk4':
-                integ = RK4Integrator(self.christoffels[i], dt=0.1)
+                integ = RK4Integrator(self.christoffels[i], dt=self.base_dt)
              elif integrator_type == 'rk45':
                 # Golden Integration
-                integ = DormandPrinceIntegrator(self.christoffels[i], dt=0.1)
+                integ = DormandPrinceIntegrator(self.christoffels[i], dt=self.base_dt)
              elif integrator_type == 'heun':
-                integ = HeunIntegrator(self.christoffels[i], dt=0.1)
+                integ = HeunIntegrator(self.christoffels[i], dt=self.base_dt)
              elif integrator_type == 'leapfrog':
-                integ = LeapfrogIntegrator(self.christoffels[i], dt=0.1)
+                integ = LeapfrogIntegrator(self.christoffels[i], dt=self.base_dt)
+             elif integrator_type == 'yoshida':
+                # Yoshida 4th-order symplectic (best energy conservation)
+                integ = YoshidaIntegrator(self.christoffels[i], dt=self.base_dt)
              else:
-                integ = SymplecticIntegrator(self.christoffels[i], dt=0.1)
+                integ = SymplecticIntegrator(self.christoffels[i], dt=self.base_dt)
              self.integrators.append(integ)
             
         # Output projection for mixing heads
@@ -225,11 +228,13 @@ class MLayer(nn.Module):
         # 1. Pre-LayerNorm (Residual approach)
         x_norm = self.norm_x(x)
         
-        # Momentum-Preserving Stability:
-        # LayerNorm destroys velocity magnitude. We use soft-clamping to prevent 
-        # integration divergence while preserving relative momentum.
+        # Soft Input Clamp (v2.6.2 Patched)
+        # Instead of destroying energy with Hard Norm, we Soft Clamp to max 5.0
+        # This preserves the "Confidence = Energy" signal from previous layers.
         v_mag = torch.norm(v, dim=-1, keepdim=True)
-        v_norm = v * torch.min(torch.ones_like(v_mag), 5.0 / (v_mag + 1e-6))
+        max_v = 5.0
+        scale = torch.clamp(max_v / (v_mag + 1e-6), max=1.0)
+        v_norm = v * scale
         
         # Apply Recursive Context
         if self.use_recursive and context is not None:
@@ -280,26 +285,35 @@ class MLayer(nn.Module):
                 dt_effective = nn.functional.softplus(self.dt_params[i]) * gate
                 
                 # Pass effective dt via dt_scale (assuming integrator uses dt * scale)
-                # Since integrator has base dt=0.1, we scale relative to that.
-                scale = dt_effective / 0.1
+                # Scale relative to the configured base timestep
+                scale = dt_effective / self.base_dt
                 gate_outputs.append(gate)
             
             # Collect geometry metadata for the loss function
             # We re-evaluate here to avoid modifying integrator return types
-            # CRITICAL: no_grad() prevents metric networks from being trained by task loss
-            # This avoids catastrophic interference between task learning and geometry
-            with torch.no_grad():
-                gamma = self.christoffels[i](v_heads[i], x_heads[i])
+            # Collect geometry metadata for the loss function
+            # We re-evaluate here to avoid modifying integrator return types
+            # Enable gradients so loss_phy can regularize geometry
+            gamma = self.christoffels[i](v_heads[i], x_heads[i])
             christoffel_outputs.append(gamma)
             
             # Pure integration - integrator returns absolute next state
             x_h, v_h = self.integrators[i](x_heads[i], v_heads[i], force=f_heads[i], dt_scale=scale)
             
-            # Velocity normalization (preserves direction/memory, controls magnitude)
-            # This prevents vanishing memory while maintaining stability
-            v_h = v_h / (torch.norm(v_h, dim=-1, keepdim=True) + 1e-6)
+            # Soft Velocity Norm (The Solution for v2.6.3)
+            # Allows oscillation (magnitude dynamics) without explosion.
+            # Max speed = 5.0 (pendulum length constraint)
+            v_mag = torch.norm(v_h, dim=-1, keepdim=True)
+            max_v = 5.0
+            
+            # Differentiable clamping: v * min(1, max/mag)
+            # Gradients flow 100% when v < max.
+            # Gradients are dampened (but not killed) when v > max.
+            scale = torch.clamp(max_v / (v_mag + 1e-6), max=1.0)
+            v_h = v_h * scale
             
             # Store absolute states (NOT deltas)
+            # Velocity magnitude evolves naturally via Hamiltonian dynamics
             x_outs.append(x_h)
             v_outs.append(v_h)
             
@@ -322,6 +336,8 @@ class MLayer(nn.Module):
              
         # Return absolute states (Pure Hamiltonian Evolution)
         return x_next, v_next, context_next, christoffel_outputs
+    
+
 
 
 
@@ -507,7 +523,8 @@ class FractalMLayer(nn.Module):
         
         # 3. Tunneling condition (Smooth sigmoid gate)
         # alpha is 0 if curvature is low (flat), rises to 1 when r > threshold
-        tunnel_gate = torch.sigmoid((curvature_r - self.threshold) * 5.0)
+        # GRADIENT FIX: Increase baseline to 0.3 for stronger micro_manifold signal
+        tunnel_gate = 0.3 + 0.7 * torch.sigmoid((curvature_r - self.threshold) * 5.0)
         
         # 4. Micro-evolution (Zooming in)
         # We use the macro-updated state as input to the sub-manifold

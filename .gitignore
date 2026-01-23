@@ -122,6 +122,7 @@ data/processed/
 .data/
 *.gz
 *.zip
+*.rar
 *ubyte
 
 # Secrets and credentials
