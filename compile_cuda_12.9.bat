@@ -61,9 +61,5 @@ echo.
 echo [SUCCESS] Kernels compiled to local .pyd file!
 echo Verified import:
 
-REM Add Torch lib to PATH to avoid "DLL load failed"
-set "TORCH_LIB=D:\ASAS\projects\GFN\.venv311\Lib\site-packages\torch\lib"
-set "PATH=%TORCH_LIB%;%PATH%"
-
-python -c "import os; os.add_dll_directory(r'%TORCH_LIB%'); import gfn_cuda; print('SUCCESS: gfn_cuda module imported directly!')"
+python -c " import gfn_cuda; print('SUCCESS: gfn_cuda module imported directly!')"
 pause

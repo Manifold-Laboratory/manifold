@@ -12,13 +12,16 @@ setup(
             'gfn_cuda',
             [
                 'cuda_kernels.cpp',
-                'kernels/christoffel_fused.cu',
-                'kernels/leapfrog_fused.cu',
+                'src/geometry/christoffel_fused.cu',
+                'src/integrators/leapfrog_fused.cu',
+                'src/integrators/yoshida_fused.cu',
+                'src/layers/parallel_scan_fused.cu',
             ],
+            include_dirs=[os.path.join(cuda_dir, 'include')],
             extra_compile_args={
                 'cxx': ['/std:c++17', '/DNOMINMAX', '/DWIN32_LEAN_AND_MEAN', '/permissive-', '/Zc:__cplusplus', '/Zm2000'],
                 'nvcc': [
-                    '-O1', '--use_fast_math', '-std=c++17',
+                    '-O3', '--use_fast_math', '-std=c++17',
                     '-Xcompiler', '/std:c++17', 
                     '-Xcompiler', '/DNOMINMAX',
                     '-Xcompiler', '/DWIN32_LEAN_AND_MEAN',

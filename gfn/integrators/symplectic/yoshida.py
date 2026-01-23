@@ -30,30 +30,28 @@ class YoshidaIntegrator(nn.Module):
         if force is None:
              force = torch.zeros_like(x)
              
-        # Try Fused CUDA Kernel (Supports Training via Autograd now!)
-        if hasattr(self.christoffel, 'U') and hasattr(self.christoffel, 'W') and x.is_cuda:
+        # Try Professional Fused CUDA Kernel
+        if x.is_cuda:
             try:
                 from gfn.cuda.ops import yoshida_fused, CUDA_AVAILABLE
-                # Physics Hyperparameters for Active Inference (Defaults)
-                plasticity = 0.0 # Default off unless specified
-                sing_thresh = 10.0
-                sing_strength = 20.0
-                
-                # Check if christoffel has these attributes active
-                if hasattr(self.christoffel, 'plasticity_mask'):
-                    # This is just a heuristic, ideally we pass the full config
-                    pass
-                    
-                # We need U, V_w (W) to be available. 
-                # Assuming LowRankChristoffel stores W.
-                U = self.christoffel.U
-                W = self.christoffel.W
-                
                 if CUDA_AVAILABLE:
-                    return yoshida_fused(x, v, force, U, W, self.dt, dt_scale)
-            except ImportError:
-                pass
-            except Exception as e:
+                    # Retrieve physics params from christoffel if it's a Reactive/Hyper manifold
+                    plasticity = getattr(self.christoffel, 'plasticity', 0.0)
+                    sing_thresh = getattr(self.christoffel, 'sing_thresh', 10.0)
+                    sing_strength = getattr(self.christoffel, 'sing_strength', 20.0)
+                    V_w = getattr(self.christoffel, 'V_w', None)
+                    
+                    # Logic matrices
+                    U = getattr(self.christoffel, 'U', None)
+                    W = getattr(self.christoffel, 'W', None)
+                    
+                    if U is not None and W is not None:
+                        res = yoshida_fused(x, v, force, U, W, self.dt, dt_scale, 
+                                           V_w=V_w, plasticity=plasticity, 
+                                           sing_thresh=sing_thresh, sing_strength=sing_strength)
+                        if res is not None:
+                            return res
+            except Exception:
                 pass
         
         # Python Implementation

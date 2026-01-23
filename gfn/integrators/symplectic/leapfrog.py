@@ -15,18 +15,18 @@ class LeapfrogIntegrator(nn.Module):
         if force is None:
             force = torch.zeros_like(x)
             
-        # Try CUDA kernel (Inference Only - requires float dt_scale)
-        is_scalar_scale = isinstance(dt_scale, float) or (isinstance(dt_scale, torch.Tensor) and dt_scale.numel() == 1)
-        
-        if hasattr(self.christoffel, 'U') and hasattr(self.christoffel, 'W') and x.is_cuda:
-             try:
+        # Try Professional Fused CUDA Kernel
+        if x.is_cuda:
+            try:
                 from gfn.cuda.ops import leapfrog_fused, CUDA_AVAILABLE
                 if CUDA_AVAILABLE:
-                     dt_val = dt_scale 
-                     return leapfrog_fused(x, v, force, self.christoffel.U, self.christoffel.W, self.dt, dt_val)
-             except ImportError:
-                pass
-             except Exception:
+                    # Logic matrices
+                    U = getattr(self.christoffel, 'U', None)
+                    W = getattr(self.christoffel, 'W', None)
+                    
+                    if U is not None and W is not None:
+                        return leapfrog_fused(x, v, force, U, W, self.dt, dt_scale)
+            except Exception:
                 pass
 
         effective_dt = self.dt * dt_scale

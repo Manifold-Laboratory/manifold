@@ -32,20 +32,22 @@ try:
              # (This is useful for development but fragile on Windows)
              print("[GFN CUDA] Pre-compiled extension not found, attempting JIT compilation...")
              gfn_cuda = load(
-                name='gfn_cuda_v2_6',
+                name='gfn_cuda_v2_6_professional',
                 sources=[
                     os.path.join(cuda_dir, 'cuda_kernels.cpp'),
-                    os.path.join(cuda_dir, 'kernels', 'christoffel_fused.cu'),
-                    os.path.join(cuda_dir, 'kernels', 'leapfrog_fused.cu'),
-                    os.path.join(cuda_dir, 'kernels', 'parallel_scan_fused.cu'),
+                    os.path.join(cuda_dir, 'src', 'geometry', 'christoffel_fused.cu'),
+                    os.path.join(cuda_dir, 'src', 'integrators', 'leapfrog_fused.cu'),
+                    os.path.join(cuda_dir, 'src', 'integrators', 'yoshida_fused.cu'),
+                    os.path.join(cuda_dir, 'src', 'integrators', 'euler_fused.cu'),
+                    os.path.join(cuda_dir, 'src', 'layers', 'parallel_scan_fused.cu'),
                 ],
                 extra_cuda_cflags=['-O3', '--use_fast_math', '-m64', '-ccbin', r'C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64\cl.exe'],
-                extra_cflags=['/DNOMINMAX', '/DWIN32_LEAN_AND_MEAN', '/Zc:twoPhase-'],
+                extra_cflags=['/DNOMINMAX', '/DWIN32_LEAN_AND_MEAN', '/Zc:twoPhase-', '/I' + os.path.join(cuda_dir, 'include')],
                 verbose=True
             )
     
     CUDA_AVAILABLE = True
-    print("[GFN CUDA] Custom kernels loaded successfully")
+    print("[GFN CUDA] Professional kernels loaded successfully (with Autograd and Parallel Scan)")
     
 except Exception as e:
     CUDA_AVAILABLE = False
@@ -77,16 +79,10 @@ def christoffel_fused(v, U, W, x=None, V_w=None, plasticity=0.0, sing_thresh=1.0
         gamma: Christoffel symbols [batch, dim]
     """
     if CUDA_AVAILABLE and v.is_cuda:
-        # Check C++ extension signature compatibility.
-        # Future updates will strictly enforce tensor arguments.
-        # We pass empty tensors as placeholders if needed. 
-        # C++ usually needs explicit tensors.
-        if x is None:
-            x = torch.empty(0, device=v.device, dtype=v.dtype)
-        if V_w is None:
-            V_w = torch.empty(0, device=v.device, dtype=v.dtype)
-            
-        return gfn_cuda.christoffel_fused(v, U, W, x, V_w, plasticity, sing_thresh, sing_strength)
+        from .autograd import christoffel_fused_autograd
+        res = christoffel_fused_autograd(v, U, W, x, V_w, plasticity, sing_thresh, sing_strength)
+        if res is not None:
+            return res
     else:
         # PyTorch fallback (MUST match LowRankChristoffel exactly)
         proj = torch.matmul(v, U)  # [batch, rank]
@@ -112,36 +108,69 @@ def christoffel_fused(v, U, W, x=None, V_w=None, plasticity=0.0, sing_thresh=1.0
         return torch.clamp(gamma, -5.0, 5.0)
 
 
-def leapfrog_fused(x, v, f, U, W, dt, dt_scale=1.0):
+def leapfrog_fused(x, v, f, U, W, dt, dt_scale=1.0, steps=1):
     """
-    Fused Leapfrog integration step with inline Christoffel computation.
-    
-    Args:
-        x: Position [batch, dim]
-        v: Velocity [batch, dim]
-        f: Force [batch, dim]
-        U, W: Christoffel matrices [dim, rank]
-        dt: Time step
-        dt_scale: Adaptive time scaling (gate)
-        
-    Returns:
-        x_new, v_new: Updated position and velocity
+    Fused Leapfrog integration step. (Supports Recurrent Fusion if steps > 1)
     """
     if CUDA_AVAILABLE and x.is_cuda:
-        return gfn_cuda.leapfrog_fused(x, v, f, U, W, dt, dt_scale)
+        return gfn_cuda.leapfrog_fused(x.contiguous(), v.contiguous(), f.contiguous() if f is not None else torch.zeros_like(x), 
+                                      U.contiguous(), W.contiguous(), dt, dt_scale, steps)
     else:
-        # PyTorch fallback
-        effective_dt = dt * dt_scale
-        
-        # Half-step velocity
-        gamma_v = christoffel_fused(v, U, W)
-        v_half = v + 0.5 * effective_dt * (f - gamma_v)
-        
-        # Full-step position
-        x_new = x + effective_dt * v_half
-        
-        # Half-step velocity again
-        gamma_v_half = christoffel_fused(v_half, U, W)
-        v_new = v_half + 0.5 * effective_dt * (f - gamma_v_half)
-        
-        return x_new, v_new
+        # PyTorch fallback loop
+        curr_x, curr_v = x, v
+        for _ in range(steps):
+            effective_dt = dt * dt_scale
+            gamma_v = christoffel_fused(curr_v, U, W)
+            v_half = curr_v + 0.5 * effective_dt * ((f if f is not None else 0) - gamma_v)
+            curr_x = curr_x + effective_dt * v_half
+            gamma_v_half = christoffel_fused(v_half, U, W)
+            curr_v = v_half + 0.5 * effective_dt * ((f if f is not None else 0) - gamma_v_half)
+        return curr_x, curr_v
+
+def euler_fused(x, v, f, U, W, dt, dt_scale=1.0, steps=1):
+    """
+    Fused Euler integration step. (Supports Recurrent Fusion if steps > 1)
+    """
+    if CUDA_AVAILABLE and x.is_cuda:
+        return gfn_cuda.euler_fused(x.contiguous(), v.contiguous(), f.contiguous() if f is not None else torch.zeros_like(x), 
+                                   U.contiguous(), W.contiguous(), dt, dt_scale, steps)
+    else:
+        # PyTorch fallback loop
+        curr_x, curr_v = x, v
+        for _ in range(steps):
+             effective_dt = dt * dt_scale
+             gamma_v = christoffel_fused(curr_v, U, W)
+             curr_v = curr_v + effective_dt * ((f if f is not None else 0) - gamma_v)
+             curr_x = curr_x + effective_dt * curr_v
+        return curr_x, curr_v
+
+def yoshida_fused(x, v, f, U, W, dt, dt_scale=1.0, V_w=None, plasticity=0.0, sing_thresh=1.0, sing_strength=1.0, steps=1):
+    """
+    Fused Yoshida 4th-order integration step. (Supports Recurrent Fusion if steps > 1)
+    """
+    if CUDA_AVAILABLE and x.is_cuda:
+        return gfn_cuda.yoshida_fused(x.contiguous(), v.contiguous(), f.contiguous() if f is not None else torch.zeros_like(x),
+                                     U.contiguous(), W.contiguous(), V_w.contiguous() if V_w is not None else torch.empty(0, device=x.device),
+                                     dt, dt_scale, plasticity, sing_thresh, sing_strength, steps)
+    else:
+        # Fallback would require complex Yoshida loop in Python
+        return None
+
+def parallel_scan_fused(a, x):
+    """
+    Fused Associative Scan for Parallel Geodesic Flow.
+    """
+    if CUDA_AVAILABLE and a.is_cuda:
+         return gfn_cuda.parallel_scan_fused(a.contiguous(), x.contiguous())
+    else:
+         # Standard PyTorch implementation for Associative Scan
+         # y_t = a_t * y_{t-1} + x_t
+         # This is less efficient but biologically correct fallback
+         from torch.distributions.utils import broadcast_all
+         a, x = broadcast_all(a, x)
+         y = torch.zeros_like(x)
+         prev = torch.zeros_like(x[:, 0])
+         for t in range(x.size(1)):
+             y[:, t] = a[:, t] * prev + x[:, t]
+             prev = y[:, t]
+         return y

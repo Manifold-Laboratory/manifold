@@ -6,12 +6,24 @@ import os
 # PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 setup(
-    name='gfn_kernels',
+    name='gfn_cuda',
     ext_modules=[
-        CUDAExtension('gfn_kernels', [
-            'gfn/csrc/bindings.cpp',
-            'gfn/csrc/fused_ops.cu',
-        ]),
+        CUDAExtension(
+            'gfn_cuda', 
+            [
+                'gfn/cuda/cuda_kernels.cpp',
+                'gfn/cuda/src/geometry/christoffel_fused.cu',
+                'gfn/cuda/src/integrators/leapfrog_fused.cu',
+                'gfn/cuda/src/integrators/yoshida_fused.cu',
+                'gfn/cuda/src/integrators/euler_fused.cu',
+                'gfn/cuda/src/layers/parallel_scan_fused.cu',
+            ],
+            include_dirs=[os.path.join(os.getcwd(), 'gfn', 'cuda', 'include')],
+            extra_compile_args={
+                'cxx': ['/std:c++17', '/DNOMINMAX', '/DWIN32_LEAN_AND_MEAN', '/Zm2000'],
+                'nvcc': ['-O3', '--use_fast_math', '-std=c++17']
+            }
+        ),
     ],
     cmdclass={
         'build_ext': BuildExtension

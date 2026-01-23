@@ -14,6 +14,18 @@ class EulerIntegrator(nn.Module):
         self.dt = dt
 
     def forward(self, x, v, force=None, dt_scale=1.0):
+        # Try Professional Fused CUDA Kernel
+        if x.is_cuda:
+            try:
+                from gfn.cuda.ops import euler_fused, CUDA_AVAILABLE
+                if CUDA_AVAILABLE:
+                    U = getattr(self.christoffel, 'U', None)
+                    W = getattr(self.christoffel, 'W', None)
+                    if U is not None and W is not None:
+                        return euler_fused(x, v, force, U, W, self.dt, dt_scale)
+            except Exception:
+                pass
+
         dt = self.dt * dt_scale
         
         acc = -self.christoffel(v, x)

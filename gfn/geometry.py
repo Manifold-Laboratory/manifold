@@ -61,13 +61,13 @@ class LowRankChristoffel(nn.Module):
         Output represents the effective "Resistance" to motion.
         Acc = F_ext - Output
         """
-        # Try CUDA kernel (Inference Only)
-        if x is None and not torch.is_grad_enabled():
+        # Try Fused CUDA Kernel (Now supports Training via Autograd!)
+        if x is None and v.is_cuda:
             try:
                 from gfn.cuda.ops import christoffel_fused, CUDA_AVAILABLE
-                if CUDA_AVAILABLE and v.is_cuda:
-                     return christoffel_fused(v, self.U, self.W)
-            except ImportError:
+                if CUDA_AVAILABLE:
+                    return christoffel_fused(v, self.U, self.W)
+            except Exception:
                 pass
         
         # PyTorch Implementation
@@ -208,8 +208,8 @@ class ReactiveChristoffel(LowRankChristoffel):
         self.black_hole_strength = self.active_cfg.get('singularities', {}).get('strength', 10.0)
 
     def forward(self, v, x=None):
-        # Try Fused CUDA Kernel (Active Inference Mode)
-        if not torch.is_grad_enabled() and v.is_cuda:
+        # Try Fused CUDA Kernel (Supports Training via Autograd!)
+        if v.is_cuda:
             try:
                 from gfn.cuda.ops import christoffel_fused, CUDA_AVAILABLE
                 if CUDA_AVAILABLE:
@@ -225,7 +225,7 @@ class ReactiveChristoffel(LowRankChristoffel):
                         sing_thresh=self.singularity_threshold,
                         sing_strength=self.black_hole_strength
                     )
-            except ImportError:
+            except Exception:
                 pass
 
         # Base curvature (static memory or PyTorch fallback)
