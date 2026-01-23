@@ -43,7 +43,7 @@ def run_integrator_suite():
     vocab_size = 64
     dim = 512
     depth = 4   # Shallower for faster stats
-    heads = 1   # Single head for pure integrator drift test
+    heads = 6   # Single head for pure integrator drift test
     seq_len = 128
     batch_size = 16
     drift_steps = 100 # Steps to measure drift
@@ -96,9 +96,8 @@ def run_integrator_suite():
                 layer = model.layers[0]
                 integrator = layer.integrators[0]
                 
-                for _ in range(drift_steps):
-                    # Call integrator directly: (x, v, force=None)
-                    x, v = integrator(x, v, force=None)
+                # Call integrator once with all drift steps (RECURRENT FUSION)
+                x, v = integrator(x, v, force=None, steps=drift_steps)
                 
                 v_end_norm = v.norm(dim=-1).mean().item()
                 drift_percent = abs(v_end_norm - v_start_norm) / (v_start_norm + 1e-8) * 100
@@ -123,26 +122,30 @@ def run_integrator_suite():
     import pandas as pd
     df = pd.DataFrame(results)
     
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-    
-    # Plot colors by type
-    palette = {"Symplectic": "#2A9D8F", "Standard": "#E76F51", "Neural": "#E9C46A"}
-    
-    sns.barplot(data=df, x="Integrator", y="Drift (%)", ax=axes[0], palette="viridis")
-    axes[0].set_title("Numerical Energy Drift")
-    axes[0].set_yscale("log")
-    axes[0].set_xticklabels(axes[0].get_xticklabels(), rotation=45)
-    
-    sns.barplot(data=df, x="Integrator", y="Inference Speed", ax=axes[1], palette="magma")
-    axes[1].set_title("Throughput (seq/s)")
-    axes[1].set_xticklabels(axes[1].get_xticklabels(), rotation=45)
-    
-    sns.barplot(data=df, x="Integrator", y="VRAM (MB)", ax=axes[2], palette="rocket")
-    axes[2].set_title("VRAM Consumption")
-    axes[2].set_xticklabels(axes[2].get_xticklabels(), rotation=45)
-    
+    if not results:
+        print("❌ All tests failed. No results to plot.")
+        return pd.DataFrame()
+
     plt.tight_layout()
-    logger.save_plot(fig, "integrator_comparison.png")
+    try:
+        fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+        sns.barplot(data=df, x="Integrator", y="Drift (%)", ax=axes[0], palette="viridis")
+        axes[0].set_title("Numerical Energy Drift")
+        axes[0].set_yscale("log")
+        axes[0].set_xticklabels(axes[0].get_xticklabels(), rotation=45)
+        
+        sns.barplot(data=df, x="Integrator", y="Inference Speed", ax=axes[1], palette="magma")
+        axes[1].set_title("Throughput (seq/s)")
+        axes[1].set_xticklabels(axes[1].get_xticklabels(), rotation=45)
+        
+        sns.barplot(data=df, x="Integrator", y="VRAM (MB)", ax=axes[2], palette="rocket")
+        axes[2].set_title("VRAM Consumption")
+        axes[2].set_xticklabels(axes[2].get_xticklabels(), rotation=45)
+        
+        plt.tight_layout()
+        logger.save_plot(fig, "integrator_comparison.png")
+    except Exception as e:
+        print(f"⚠️ Visualization failed: {e}")
     
     return df
 

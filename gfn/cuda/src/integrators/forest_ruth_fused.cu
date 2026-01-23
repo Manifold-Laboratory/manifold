@@ -1,13 +1,18 @@
-
 #include "../../include/christoffel_impl.cuh"
 
 #define BLOCK_SIZE 256
 
-// Yoshida Coefficients
-#define Y_W0 -1.7024143839193153f
-#define Y_W1 1.3512071919596578f
+// Forest-Ruth coefficients (4th order symplectic)
+#define FR_THETA 1.35120719195966f
+#define FR_C1 (FR_THETA / 2.0f)
+#define FR_C2 ((1.0f - FR_THETA) / 2.0f)
+#define FR_C3 FR_C2
+#define FR_C4 FR_C1
+#define FR_D1 FR_THETA
+#define FR_D2 (1.0f - 2.0f * FR_THETA)
+#define FR_D3 FR_D1
 
-__global__ void yoshida_fused_kernel(
+__global__ void forest_ruth_fused_kernel(
     const float* __restrict__ x_in,
     const float* __restrict__ v_in,
     const float* __restrict__ f,
@@ -52,49 +57,42 @@ __global__ void yoshida_fused_kernel(
     float scale = (dt_scale_tensor != nullptr) ? dt_scale_tensor[b] : dt_scale_scalar;
     float eff_dt = dt * scale;
     
-    float c1 = Y_W1 / 2.0f;
-    float c2 = (Y_W0 + Y_W1) / 2.0f;
-    float c3 = c2; 
-    float c4 = c1;
-    float d1 = Y_W1;
-    float d2 = Y_W0;
-    float d3 = Y_W1;
-    
     for (int s = 0; s < steps; s++) {
-        // === Substep 1 ===
-        for (int i = tid; i < dim; i += blockDim.x) s_x[i] += c1 * eff_dt * s_v[i];
+        // Substep 1
+        for (int i = tid; i < dim; i += blockDim.x) s_x[i] += FR_C1 * eff_dt * s_v[i];
         __syncthreads();
         christoffel_device(s_v, U, W, s_gamma, s_x, V_w, dim, rank, plasticity, sing_thresh, sing_strength, use_active, s_h, s_E, s_P, s_M);
         __syncthreads(); 
         for (int i = tid; i < dim; i += blockDim.x) {
             float f_val = (f != nullptr) ? f[b * dim + i] : 0.0f;
-            s_v[i] += d1 * eff_dt * (f_val - s_gamma[i]);
+            s_v[i] += FR_D1 * eff_dt * (f_val - s_gamma[i]);
         }
         __syncthreads();
         
-        // === Substep 2 ===
-        for (int i = tid; i < dim; i += blockDim.x) s_x[i] += c2 * eff_dt * s_v[i];
+        // Substep 2
+        for (int i = tid; i < dim; i += blockDim.x) s_x[i] += FR_C2 * eff_dt * s_v[i];
         __syncthreads();
         christoffel_device(s_v, U, W, s_gamma, s_x, V_w, dim, rank, plasticity, sing_thresh, sing_strength, use_active, s_h, s_E, s_P, s_M);
         __syncthreads();
         for (int i = tid; i < dim; i += blockDim.x) {
             float f_val = (f != nullptr) ? f[b * dim + i] : 0.0f;
-            s_v[i] += d2 * eff_dt * (f_val - s_gamma[i]);
+            s_v[i] += FR_D2 * eff_dt * (f_val - s_gamma[i]);
         }
         __syncthreads();
         
-         // === Substep 3 ===
-        for (int i = tid; i < dim; i += blockDim.x) s_x[i] += c3 * eff_dt * s_v[i];
+        // Substep 3
+        for (int i = tid; i < dim; i += blockDim.x) s_x[i] += FR_C3 * eff_dt * s_v[i];
         __syncthreads();
         christoffel_device(s_v, U, W, s_gamma, s_x, V_w, dim, rank, plasticity, sing_thresh, sing_strength, use_active, s_h, s_E, s_P, s_M);
         __syncthreads();
         for (int i = tid; i < dim; i += blockDim.x) {
             float f_val = (f != nullptr) ? f[b * dim + i] : 0.0f;
-            s_v[i] += d3 * eff_dt * (f_val - s_gamma[i]);
+            s_v[i] += FR_D3 * eff_dt * (f_val - s_gamma[i]);
         }
         __syncthreads();
         
-        for (int i = tid; i < dim; i += blockDim.x) s_x[i] += c4 * eff_dt * s_v[i];
+        // Substep 4 (final position)
+        for (int i = tid; i < dim; i += blockDim.x) s_x[i] += FR_C4 * eff_dt * s_v[i];
         __syncthreads();
     }
     
@@ -104,7 +102,7 @@ __global__ void yoshida_fused_kernel(
     }
 }
 
-extern "C" void launch_yoshida_fused(
+extern "C" void launch_forest_ruth_fused(
     const float* x, const float* v, const float* f,
     const float* U, const float* W, const float* V_w,
     float* x_new, float* v_new,
@@ -117,7 +115,7 @@ extern "C" void launch_yoshida_fused(
     cudaStream_t stream
 ) {
     int shared = (3 * dim + rank + 16) * sizeof(float) + 2 * sizeof(double);
-    yoshida_fused_kernel<<<batch, BLOCK_SIZE, shared, stream>>>(
+    forest_ruth_fused_kernel<<<batch, BLOCK_SIZE, shared, stream>>>(
         x, v, f, U, W, V_w, x_new, v_new, dt, dt_scale_scalar, dt_scale_tensor,
         batch, dim, rank, plasticity, sing_thresh, sing_strength, use_active, steps
     );

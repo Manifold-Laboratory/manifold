@@ -43,37 +43,26 @@ class CouplingFlowIntegrator(nn.Module):
         nn.init.zeros_(self.drift_net[2].weight)
         nn.init.zeros_(self.drift_net[2].bias)
 
-    def forward(self, x, v, force=None, dt_scale=1.0):
-        dt = self.dt * dt_scale
-        
-        if force is None:
-            force = torch.zeros_like(x)
+    def forward(self, x, v, force=None, dt_scale=1.0, steps=1, collect_christ=False):
+        # We can approximate coupling flow with Verlet fused if needed, but it's logically different
+        # For now, standard Python loop for stability
+        for _ in range(steps):
+            dt = self.dt * dt_scale
             
-        # We implement a Symmetric Splitting (Strang Splitting) for higher order accuracy
-        # Kick - Drift - Kick (Verlet/Leapfrog structure) but with generalized networks.
-        # This ensures time-reversibility and higher stability.
-        
-        # 1. KICK (Half Step)
-        # v_half = v + 0.5 * dt * F(x)
-        # Note: We must avoid v-dependence in F(x) to keep Jacobian=1
-        v_dummy = torch.zeros_like(x)
-        acc_1 = -self.christoffel(v_dummy, x) + force
-        v_half = v + 0.5 * dt * acc_1
-        
-        # 2. DRIFT (Full Step)
-        # x_new = x + dt * G(v_half)
-        # G(v) = v + drift_net(v)
-        # This allows the integrator to learn "Warp Drive" (non-linear displacement)
-        warp = self.drift_net(v_half)
-        x_new = x + dt * (v_half + warp)
-        
-        # 3. KICK (Half Step)
-        # v_new = v_half + 0.5 * dt * F(x_new)
-        acc_2 = -self.christoffel(v_dummy, x_new) + force # Force assumed constant or position dependent
-        v_new = v_half + 0.5 * dt * acc_2
-        
-        # Because each step is a shear transformation ( triangular Jacobian with 1s on diagonal),
-        # the total determinant is 1.0 * 1.0 * 1.0 = 1.0.
-        # Exact Volume Preservation confirmed.
-        
-        return x_new, v_new
+            if force is None:
+                f_in = torch.zeros_like(x)
+            else:
+                f_in = force
+                
+            # Symmetric Splitting (Verification)
+            v_dummy = torch.zeros_like(x)
+            acc_1 = -self.christoffel(v_dummy, x) + f_in
+            v_half = v + 0.5 * dt * acc_1
+            
+            warp = self.drift_net(v_half)
+            x = x + dt * (v_half + warp)
+            
+            acc_2 = -self.christoffel(v_dummy, x) + f_in
+            v = v_half + 0.5 * dt * acc_2
+            
+        return x, v

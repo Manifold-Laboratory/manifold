@@ -1,13 +1,19 @@
-
 #include "../../include/christoffel_impl.cuh"
 
 #define BLOCK_SIZE 256
 
-// Yoshida Coefficients
-#define Y_W0 -1.7024143839193153f
-#define Y_W1 1.3512071919596578f
+// Omelyan coefficients (optimized 2nd order)
+#define OM_LAMBDA 0.1931833275037836f
+#define OM_C1 OM_LAMBDA
+#define OM_C2 ((1.0f - 2.0f * OM_LAMBDA) / 2.0f)
+#define OM_C3 OM_C2
+#define OM_C4 OM_C2
+#define OM_C5 OM_LAMBDA
+#define OM_D1 0.5f
+#define OM_D2 (1.0f - OM_LAMBDA)
+#define OM_D3 0.5f
 
-__global__ void yoshida_fused_kernel(
+__global__ void omelyan_fused_kernel(
     const float* __restrict__ x_in,
     const float* __restrict__ v_in,
     const float* __restrict__ f,
@@ -52,49 +58,48 @@ __global__ void yoshida_fused_kernel(
     float scale = (dt_scale_tensor != nullptr) ? dt_scale_tensor[b] : dt_scale_scalar;
     float eff_dt = dt * scale;
     
-    float c1 = Y_W1 / 2.0f;
-    float c2 = (Y_W0 + Y_W1) / 2.0f;
-    float c3 = c2; 
-    float c4 = c1;
-    float d1 = Y_W1;
-    float d2 = Y_W0;
-    float d3 = Y_W1;
-    
     for (int s = 0; s < steps; s++) {
-        // === Substep 1 ===
-        for (int i = tid; i < dim; i += blockDim.x) s_x[i] += c1 * eff_dt * s_v[i];
-        __syncthreads();
-        christoffel_device(s_v, U, W, s_gamma, s_x, V_w, dim, rank, plasticity, sing_thresh, sing_strength, use_active, s_h, s_E, s_P, s_M);
-        __syncthreads(); 
-        for (int i = tid; i < dim; i += blockDim.x) {
-            float f_val = (f != nullptr) ? f[b * dim + i] : 0.0f;
-            s_v[i] += d1 * eff_dt * (f_val - s_gamma[i]);
-        }
+        // Substep 1: x += λ * dt * v
+        for (int i = tid; i < dim; i += blockDim.x) s_x[i] += OM_C1 * eff_dt * s_v[i];
         __syncthreads();
         
-        // === Substep 2 ===
-        for (int i = tid; i < dim; i += blockDim.x) s_x[i] += c2 * eff_dt * s_v[i];
-        __syncthreads();
+        // v += 0.5 * dt * a
         christoffel_device(s_v, U, W, s_gamma, s_x, V_w, dim, rank, plasticity, sing_thresh, sing_strength, use_active, s_h, s_E, s_P, s_M);
         __syncthreads();
         for (int i = tid; i < dim; i += blockDim.x) {
             float f_val = (f != nullptr) ? f[b * dim + i] : 0.0f;
-            s_v[i] += d2 * eff_dt * (f_val - s_gamma[i]);
+            s_v[i] += OM_D1 * eff_dt * (f_val - s_gamma[i]);
         }
         __syncthreads();
         
-         // === Substep 3 ===
-        for (int i = tid; i < dim; i += blockDim.x) s_x[i] += c3 * eff_dt * s_v[i];
+        // Substep 2: x += (1-2λ)/2 * dt * v
+        for (int i = tid; i < dim; i += blockDim.x) s_x[i] += OM_C2 * eff_dt * s_v[i];
         __syncthreads();
+        
+        // v += (1-λ) * dt * a
         christoffel_device(s_v, U, W, s_gamma, s_x, V_w, dim, rank, plasticity, sing_thresh, sing_strength, use_active, s_h, s_E, s_P, s_M);
         __syncthreads();
         for (int i = tid; i < dim; i += blockDim.x) {
             float f_val = (f != nullptr) ? f[b * dim + i] : 0.0f;
-            s_v[i] += d3 * eff_dt * (f_val - s_gamma[i]);
+            s_v[i] += OM_D2 * eff_dt * (f_val - s_gamma[i]);
         }
         __syncthreads();
         
-        for (int i = tid; i < dim; i += blockDim.x) s_x[i] += c4 * eff_dt * s_v[i];
+        // Substep 3: x += (1-2λ)/2 * dt * v
+        for (int i = tid; i < dim; i += blockDim.x) s_x[i] += OM_C3 * eff_dt * s_v[i];
+        __syncthreads();
+        
+        // v += 0.5 * dt * a
+        christoffel_device(s_v, U, W, s_gamma, s_x, V_w, dim, rank, plasticity, sing_thresh, sing_strength, use_active, s_h, s_E, s_P, s_M);
+        __syncthreads();
+        for (int i = tid; i < dim; i += blockDim.x) {
+            float f_val = (f != nullptr) ? f[b * dim + i] : 0.0f;
+            s_v[i] += OM_D3 * eff_dt * (f_val - s_gamma[i]);
+        }
+        __syncthreads();
+        
+        // Substep 4 (final): x += λ * dt * v
+        for (int i = tid; i < dim; i += blockDim.x) s_x[i] += OM_C5 * eff_dt * s_v[i];
         __syncthreads();
     }
     
@@ -104,7 +109,7 @@ __global__ void yoshida_fused_kernel(
     }
 }
 
-extern "C" void launch_yoshida_fused(
+extern "C" void launch_omelyan_fused(
     const float* x, const float* v, const float* f,
     const float* U, const float* W, const float* V_w,
     float* x_new, float* v_new,
@@ -117,7 +122,7 @@ extern "C" void launch_yoshida_fused(
     cudaStream_t stream
 ) {
     int shared = (3 * dim + rank + 16) * sizeof(float) + 2 * sizeof(double);
-    yoshida_fused_kernel<<<batch, BLOCK_SIZE, shared, stream>>>(
+    omelyan_fused_kernel<<<batch, BLOCK_SIZE, shared, stream>>>(
         x, v, f, U, W, V_w, x_new, v_new, dt, dt_scale_scalar, dt_scale_tensor,
         batch, dim, rank, plasticity, sing_thresh, sing_strength, use_active, steps
     );

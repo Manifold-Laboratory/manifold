@@ -19,16 +19,15 @@ __global__ void leapfrog_fused_kernel(
     const int steps
 ) {
     extern __shared__ float s_mem_f[];
-    double* s_mem_d = (double*)(s_mem_f + 2 * dim + rank);
-
     float* s_x = s_mem_f;
     float* s_v = s_x + dim;
-    float* s_h = s_v + dim;
+    float* s_gamma = s_v + dim;
+    float* s_h = s_gamma + dim;
     
+    double* s_mem_d = (double*)(s_h + rank + (rank % 2));
     double* s_E = s_mem_d;
     double* s_P = s_E + 1;
     float* s_M = (float*)(s_P + 1);
-    float* s_gamma = s_M + 1;
 
     const int b = blockIdx.x;
     const int tid = threadIdx.x;
@@ -83,7 +82,7 @@ extern "C" void launch_leapfrog_fused(
     int steps,
     cudaStream_t stream
 ) {
-    int shared = (3 * dim + MAX_RANK + 1) * sizeof(float) + 2 * sizeof(double);
+    int shared = (3 * dim + rank + 16) * sizeof(float) + 2 * sizeof(double);
     leapfrog_fused_kernel<<<batch, BLOCK_SIZE, shared, stream>>>(
         x, v, f, U, W, x_new, v_new, dt, dt_scale, batch, dim, rank, steps
     );

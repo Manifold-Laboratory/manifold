@@ -187,18 +187,45 @@ class Manifold(nn.Module):
             logits_list = []
             all_christoffels = []
             
+            # Context state
+            context = None
+            
+            # 🚀 TRAJECTORY FUSION PATH (ULTRA-FAST)
+            # Only if: heads=1, no special gating, forces available
+            can_fuse = (not self.use_scan and self.depth > 0 and self.layers[0].heads == 1 
+                        and not collect_christ and not self.training)
+            
+            if can_fuse:
+                try:
+                    from gfn.cuda.ops import recurrent_manifold_fused, CUDA_AVAILABLE
+                    if CUDA_AVAILABLE and hasattr(recurrent_manifold_fused, '__call__'):
+                        # Stack parameters for the kernel
+                        U_stack = torch.stack([l.christoffels[0].U for l in self.layers])
+                        W_stack = torch.stack([l.christoffels[0].W for l in self.layers])
+                        
+                        base_dt = self.layers[0].base_dt
+                        
+                        # 🚀 DISPATCH TO ULTRA-FAST FUSED KERNEL (Trajectory Fusion)
+                        res = recurrent_manifold_fused(x, v, all_forces * mask, 
+                                                      U_stack, W_stack, base_dt, 1.0)
+                        
+                        if res is not None:
+                            x, v, x_seq = res
+                            # Readout the whole sequence
+                            out_seq = self.readout_norm(x_seq)
+                            logits = self.readout(out_seq) # [batch, seq, vocab]
+                            return logits, [] 
+                except Exception:
+                    # Silent fallback to standard loop
+                    pass
+
             for t in range(seq_len):
-                # Get force for current timestep
-                force = all_forces[:, t]  # [batch, dim]
-                
-                # Apply mask (zero force for padding tokens)
-                force = force * mask[:, t]
+                # Get force and mask for current timestep
+                force = all_forces[:, t] * mask[:, t]
                 
                 # Evolve state through all M-Layers
-                context = None
                 for layer in self.layers:
-                    # Update state
-                    x, v, context, layer_christoffels = layer(x, v, force, context)
+                    x, v, context, layer_christoffels = layer(x, v, force, context, collect_christ=collect_christ)
                     if collect_christ:
                         all_christoffels.extend(layer_christoffels) 
                 

@@ -38,42 +38,31 @@ class NeuralIntegrator(nn.Module):
         nn.init.constant_(self.controller[2].bias, 0.55)
         nn.init.xavier_uniform_(self.controller[0].weight, gain=0.1) # low gain to start neutral
 
-    def forward(self, x, v, force=None, dt_scale=1.0):
-        # 0. Handle Force
-        if force is None:
-            f_in = torch.zeros_like(x)
-        else:
-            f_in = force
+    def forward(self, x, v, force=None, dt_scale=1.0, steps=1, collect_christ=False):
+        for _ in range(steps):
+            # 0. Handle Force
+            if force is None:
+                f_in = torch.zeros_like(x)
+            else:
+                f_in = force
 
-        # 1. Predict Dynamic DT
-        # We concatenate x, v, AND force. 
-        # "If I'm moving fast (v) towards a wall (x) with a push (f), I need a tiny step."
-        state = torch.cat([x, v, f_in], dim=-1)
-        
-        # Learned scale: Range (0, Infinity), centered around 1.0
-        # We add a small epsilon to prevent time stopping completely (Zeno's paradox)
-        learned_scale = self.controller(state) + 0.1 
-        
-        # dynamic_dt = base_dt * external_wormhole * learned_internal_judgment
-        dynamics_dt = self.base_dt * dt_scale * learned_scale
-        
-        # 2. Symplectic Step (Leapfrog-like using dynamic dt)
-        
-        # Half-step Kick
-        acc = -self.christoffel(v, x)
-        if force is not None:
-            acc = acc + force
+            # 1. Predict Dynamic DT
+            state = torch.cat([x, v, f_in], dim=-1)
+            learned_scale = self.controller(state) + 0.1 
+            dynamics_dt = self.base_dt * dt_scale * learned_scale
             
-        v_half = v + 0.5 * dynamics_dt * acc
-        
-        # Full-step Drift
-        x_next = x + dynamics_dt * v_half
-        
-        # Half-step Kick (at new pos)
-        acc_next = -self.christoffel(v_half, x_next)
-        if force is not None:
-            acc_next = acc_next + force
+            # 2. Symplectic Step (Leapfrog-like using dynamic dt)
+            acc = -self.christoffel(v, x)
+            if force is not None:
+                acc = acc + force
+                
+            v_half = v + 0.5 * dynamics_dt * acc
+            x = x + dynamics_dt * v_half
             
-        v_next = v_half + 0.5 * dynamics_dt * acc_next
-        
-        return x_next, v_next
+            acc_next = -self.christoffel(v_half, x)
+            if force is not None:
+                acc_next = acc_next + force
+                
+            v = v_half + 0.5 * dynamics_dt * acc_next
+            
+        return x, v

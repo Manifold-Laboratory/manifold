@@ -1,7 +1,7 @@
 {
     "benchmark": "integrators",
     "category": "core",
-    "timestamp": "2026-01-23T06:12:00.902975",
+    "timestamp": "2026-01-23T08:49:15.280888",
     "hardware": {
         "device": "NVIDIA GeForce GTX 1650",
         "torch_version": "2.6.0+cu124"
@@ -11,78 +11,78 @@
             "Integrator": "euler",
             "Type": "Standard",
             "Drift (%)": 0.0,
-            "Inference Speed": 20.388937955633335,
-            "VRAM (MB)": 23.69287109375
+            "Inference Speed": 41757.74002862298,
+            "VRAM (MB)": 32.03173828125
         },
         {
             "Integrator": "heun",
             "Type": "Standard",
             "Drift (%)": 0.0,
-            "Inference Speed": 12.827832360120643,
-            "VRAM (MB)": 26.14599609375
+            "Inference Speed": 35194.49548982589,
+            "VRAM (MB)": 34.48486328125
         },
         {
             "Integrator": "rk4",
             "Type": "Standard",
             "Drift (%)": 0.0,
-            "Inference Speed": 8.18731418181867,
-            "VRAM (MB)": 26.14599609375
+            "Inference Speed": 37386.553760445684,
+            "VRAM (MB)": 34.48486328125
         },
         {
             "Integrator": "rk45",
             "Type": "Standard",
             "Drift (%)": 0.0,
-            "Inference Speed": 4.442848408048698,
-            "VRAM (MB)": 26.14599609375
+            "Inference Speed": 29838.097016584412,
+            "VRAM (MB)": 34.48486328125
         },
         {
             "Integrator": "leapfrog",
             "Type": "Symplectic",
             "Drift (%)": 0.0,
-            "Inference Speed": 1.044270721461384,
-            "VRAM (MB)": 26.14599609375
+            "Inference Speed": 37674.094200864536,
+            "VRAM (MB)": 34.48486328125
         },
         {
             "Integrator": "symplectic",
             "Type": "Symplectic",
             "Drift (%)": 0.0,
-            "Inference Speed": 13.538686124024009,
-            "VRAM (MB)": 26.14599609375
+            "Inference Speed": 37165.013014343465,
+            "VRAM (MB)": 34.48486328125
         },
         {
             "Integrator": "yoshida",
             "Type": "Symplectic",
             "Drift (%)": 0.0,
-            "Inference Speed": 1.105302167593205,
-            "VRAM (MB)": 26.14599609375
+            "Inference Speed": 31920.121765601216,
+            "VRAM (MB)": 34.48486328125
         },
         {
             "Integrator": "forest_ruth",
             "Type": "Symplectic",
             "Drift (%)": 0.0,
-            "Inference Speed": 15.281145966446944,
-            "VRAM (MB)": 26.14599609375
+            "Inference Speed": 35802.85104566795,
+            "VRAM (MB)": 34.48486328125
         },
         {
             "Integrator": "omelyan",
             "Type": "Symplectic",
             "Drift (%)": 0.0,
-            "Inference Speed": 16.052432998974144,
-            "VRAM (MB)": 26.14599609375
+            "Inference Speed": 44784.02669336003,
+            "VRAM (MB)": 34.48486328125
         },
         {
             "Integrator": "coupling",
             "Type": "Symplectic",
             "Drift (%)": 0.0,
-            "Inference Speed": 19.252479354514918,
-            "VRAM (MB)": 34.34326171875
+            "Inference Speed": 39784.71899454589,
+            "VRAM (MB)": 42.50048828125
         },
         {
             "Integrator": "neural",
             "Type": "Standard",
             "Drift (%)": 0.0,
-            "Inference Speed": 14.146535759141655,
-            "VRAM (MB)": 41.3173828125
+            "Inference Speed": 37488.89112340093,
+            "VRAM (MB)": 48.50634765625
         }
     ]
 }

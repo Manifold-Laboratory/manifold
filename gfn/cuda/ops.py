@@ -32,13 +32,20 @@ try:
              # (This is useful for development but fragile on Windows)
              print("[GFN CUDA] Pre-compiled extension not found, attempting JIT compilation...")
              gfn_cuda = load(
-                name='gfn_cuda_v2_6_professional',
+                name='gfn_cuda_v2_6',
                 sources=[
                     os.path.join(cuda_dir, 'cuda_kernels.cpp'),
                     os.path.join(cuda_dir, 'src', 'geometry', 'christoffel_fused.cu'),
                     os.path.join(cuda_dir, 'src', 'integrators', 'leapfrog_fused.cu'),
                     os.path.join(cuda_dir, 'src', 'integrators', 'yoshida_fused.cu'),
                     os.path.join(cuda_dir, 'src', 'integrators', 'euler_fused.cu'),
+                    os.path.join(cuda_dir, 'src', 'integrators', 'verlet_fused.cu'),
+                    os.path.join(cuda_dir, 'src', 'integrators', 'forest_ruth_fused.cu'),
+                    os.path.join(cuda_dir, 'src', 'integrators', 'omelyan_fused.cu'),
+                    os.path.join(cuda_dir, 'src', 'integrators', 'heun_fused.cu'),
+                    os.path.join(cuda_dir, 'src', 'integrators', 'rk4_fused.cu'),
+                    os.path.join(cuda_dir, 'src', 'integrators', 'dormand_prince_fused.cu'),
+                    os.path.join(cuda_dir, 'src', 'integrators', 'recurrent_manifold_fused.cu'),
                     os.path.join(cuda_dir, 'src', 'layers', 'parallel_scan_fused.cu'),
                 ],
                 extra_cuda_cflags=['-O3', '--use_fast_math', '-m64', '-ccbin', r'C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64\cl.exe'],
@@ -47,7 +54,7 @@ try:
             )
     
     CUDA_AVAILABLE = True
-    print("[GFN CUDA] Professional kernels loaded successfully (with Autograd and Parallel Scan)")
+    print("[GFN CUDA] Professional kernels loaded successfully (Autograd, Parallel Scan, Trajectory Fusion)")
     
 except Exception as e:
     CUDA_AVAILABLE = False
@@ -83,29 +90,29 @@ def christoffel_fused(v, U, W, x=None, V_w=None, plasticity=0.0, sing_thresh=1.0
         res = christoffel_fused_autograd(v, U, W, x, V_w, plasticity, sing_thresh, sing_strength)
         if res is not None:
             return res
-    else:
-        # PyTorch fallback (MUST match LowRankChristoffel exactly)
-        proj = torch.matmul(v, U)  # [batch, rank]
-        
-        # Stability: Norm-based saturation
-        norm = torch.norm(proj, dim=-1, keepdim=True)
-        scale = 1.0 / (1.0 + norm)
-        sq = (proj * proj) * scale
-        
-        gamma = torch.matmul(sq, W.t())  # [batch, dim]
-        
-        # 1. Reactive Plasticity
-        if plasticity != 0.0:
-            energy = torch.tanh(v.pow(2).mean(dim=-1, keepdim=True))
-            gamma = gamma * (1.0 + plasticity * energy)
-            
-        # 2. Singularities
-        if x is not None and x.numel() > 0 and V_w is not None and V_w.numel() > 0:
-            potential = torch.sigmoid(torch.matmul(x, V_w.t()))
-            is_singularity = (potential > sing_thresh).float()
-            gamma = gamma * (1.0 + is_singularity * (sing_strength - 1.0))
 
-        return torch.clamp(gamma, -5.0, 5.0)
+    # PyTorch fallback (MUST match LowRankChristoffel exactly)
+    proj = torch.matmul(v, U)  # [batch, rank]
+    
+    # Stability: Norm-based saturation
+    norm = torch.norm(proj, dim=-1, keepdim=True)
+    scale = 1.0 / (1.0 + norm)
+    sq = (proj * proj) * scale
+    
+    gamma = torch.matmul(sq, W.t())  # [batch, dim]
+    
+    # 1. Reactive Plasticity
+    if plasticity != 0.0:
+        energy = torch.tanh(v.pow(2).mean(dim=-1, keepdim=True))
+        gamma = gamma * (1.0 + plasticity * energy)
+        
+    # 2. Singularities
+    if x is not None and x.numel() > 0 and V_w is not None and V_w.numel() > 0:
+        potential = torch.sigmoid(torch.matmul(x, V_w.t()))
+        is_singularity = (potential > sing_thresh).float()
+        gamma = gamma * (1.0 + is_singularity * (sing_strength - 1.0))
+
+    return torch.clamp(gamma, -5.0, 5.0)
 
 
 def leapfrog_fused(x, v, f, U, W, dt, dt_scale=1.0, steps=1):
@@ -156,6 +163,77 @@ def yoshida_fused(x, v, f, U, W, dt, dt_scale=1.0, V_w=None, plasticity=0.0, sin
         # Fallback would require complex Yoshida loop in Python
         return None
 
+def verlet_fused(x, v, f, U, W, dt, dt_scale=1.0, steps=1):
+    """
+    Fused Verlet integration step. (Supports Recurrent Fusion if steps > 1)
+    """
+    if CUDA_AVAILABLE and x.is_cuda:
+        return gfn_cuda.verlet_fused(x.contiguous(), v.contiguous(), f.contiguous() if f is not None else torch.zeros_like(x),
+                                    U.contiguous(), W.contiguous(), dt, dt_scale, steps)
+    else:
+        # Fallback loop
+        curr_x, curr_v = x, v
+        for _ in range(steps):
+            eff_dt = dt * dt_scale
+            gamma = christoffel_fused(curr_v, U, W)
+            a = (f if f is not None else 0.0) - gamma
+            x_half = curr_x + 0.5 * eff_dt * curr_v
+            curr_x = x_half + 0.5 * eff_dt * (curr_v + eff_dt * a) # Approx
+            curr_v = curr_v + eff_dt * a
+        return curr_x, curr_v
+
+def forest_ruth_fused(x, v, f, U, W, dt, dt_scale=1.0, V_w=None, plasticity=0.0, sing_thresh=1.0, sing_strength=1.0, steps=1):
+    """
+    Fused Forest-Ruth 4th-order integration step. (Supports Recurrent Fusion if steps > 1)
+    """
+    if CUDA_AVAILABLE and x.is_cuda:
+        return gfn_cuda.forest_ruth_fused(x.contiguous(), v.contiguous(), f.contiguous() if f is not None else torch.zeros_like(x),
+                                         U.contiguous(), W.contiguous(), V_w.contiguous() if V_w is not None else torch.empty(0, device=x.device),
+                                         dt, dt_scale, plasticity, sing_thresh, sing_strength, steps)
+    else:
+        return None
+
+def omelyan_fused(x, v, f, U, W, dt, dt_scale=1.0, V_w=None, plasticity=0.0, sing_thresh=1.0, sing_strength=1.0, steps=1):
+    """
+    Fused Omelyan optimized 2nd-order integration step. (Supports Recurrent Fusion if steps > 1)
+    """
+    if CUDA_AVAILABLE and x.is_cuda:
+        return gfn_cuda.omelyan_fused(x.contiguous(), v.contiguous(), f.contiguous() if f is not None else torch.zeros_like(x),
+                                     U.contiguous(), W.contiguous(), V_w.contiguous() if V_w is not None else torch.empty(0, device=x.device),
+                                     dt, dt_scale, plasticity, sing_thresh, sing_strength, steps)
+    else:
+        return None
+
+def heun_fused(x, v, f, U, W, dt, dt_scale=1.0, steps=1):
+    """
+    Fused Heun 2nd-order integration step. (Supports Recurrent Fusion if steps > 1)
+    """
+    if CUDA_AVAILABLE and x.is_cuda:
+        return gfn_cuda.heun_fused(x.contiguous(), v.contiguous(), f.contiguous() if f is not None else torch.zeros_like(x),
+                                  U.contiguous(), W.contiguous(), dt, dt_scale, steps)
+    else:
+        return None
+
+def rk4_fused(x, v, f, U, W, dt, dt_scale=1.0, steps=1):
+    """
+    Fused RK4 4th-order integration step. (Supports Recurrent Fusion if steps > 1)
+    """
+    if CUDA_AVAILABLE and x.is_cuda:
+        return gfn_cuda.rk4_fused(x.contiguous(), v.contiguous(), f.contiguous() if f is not None else torch.zeros_like(x),
+                                 U.contiguous(), W.contiguous(), dt, dt_scale, steps)
+    else:
+        return None
+
+def dormand_prince_fused(x, v, f, U, W, dt, dt_scale=1.0, steps=1):
+    """
+    Fused Dormand-Prince 5th-order integration step. (Supports Recurrent Fusion if steps > 1)
+    """
+    if CUDA_AVAILABLE and x.is_cuda:
+        return gfn_cuda.dormand_prince_fused(x.contiguous(), v.contiguous(), f.contiguous() if f is not None else torch.zeros_like(x),
+                                            U.contiguous(), W.contiguous(), dt, dt_scale, steps)
+    else:
+        return None
+
 def parallel_scan_fused(a, x):
     """
     Fused Associative Scan for Parallel Geodesic Flow.
@@ -174,3 +252,16 @@ def parallel_scan_fused(a, x):
              y[:, t] = a[:, t] * prev + x[:, t]
              prev = y[:, t]
          return y
+
+def recurrent_manifold_fused(x_state, v_state, forces, U_stack, W_stack, dt, dt_scale=1.0):
+    """
+    ULTRA-PERFORMANCE Recurrent Manifold Fused Op.
+    Processes ENTIRE sequence and ALL layers in ONE kernel launch.
+    """
+    if CUDA_AVAILABLE and x_state.is_cuda:
+        return gfn_cuda.recurrent_manifold_fused(
+            x_state.contiguous(), v_state.contiguous(), 
+            forces.contiguous(), U_stack.contiguous(), W_stack.contiguous(), 
+            dt, dt_scale
+        )
+    return None

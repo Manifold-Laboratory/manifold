@@ -230,7 +230,7 @@ class MLayer(nn.Module):
             self.context_proj = nn.Linear(heads, dim) # context is [batch, heads] (gates)
             nn.init.zeros_(self.context_proj.weight) # Start with no influence
             
-    def forward(self, x, v, force=None, context=None):
+    def forward(self, x, v, force=None, context=None, collect_christ=False):
         """
         Args:
             x: Position [batch, dim]
@@ -302,16 +302,14 @@ class MLayer(nn.Module):
                 scale = dt_effective / self.base_dt
                 gate_outputs.append(gate)
             
-            # Collect geometry metadata for the loss function
-            # We re-evaluate here to avoid modifying integrator return types
-            # CRITICAL: no_grad() prevents metric networks from being trained by task loss
-            # This avoids catastrophic interference between task learning and geometry
-            with torch.no_grad():
-                gamma = self.christoffels[i](v_heads[i], x_heads[i])
-            christoffel_outputs.append(gamma)
+            # Collect geometry metadata for the loss function ONLY if requested or training
+            if collect_christ or self.training:
+                with torch.no_grad():
+                    gamma = self.christoffels[i](v_heads[i], x_heads[i])
+                christoffel_outputs.append(gamma)
             
             # Pure integration - integrator returns absolute next state
-            x_h, v_h = self.integrators[i](x_heads[i], v_heads[i], force=f_heads[i], dt_scale=scale)
+            x_h, v_h = self.integrators[i](x_heads[i], v_heads[i], force=f_heads[i], dt_scale=scale, steps=1, collect_christ=collect_christ)
             
             # Soft Velocity Norm (The Solution for v2.6.3)
             # Allows oscillation (magnitude dynamics) without explosion.
@@ -421,7 +419,7 @@ class ParallelMLayer(nn.Module):
         if heads > 1:
             self.out_proj = nn.Linear(dim * 2, dim * 2)
             
-    def forward(self, x, v, force):
+    def forward(self, x, v, force, collect_christ=False):
         """
         Args:
             x: [Batch, Seq, Dim]
@@ -518,9 +516,9 @@ class FractalMLayer(nn.Module):
         self.threshold = fract_cfg.get('threshold', 0.5)
         self.alpha_scale = fract_cfg.get('alpha', 0.2)
         
-    def forward(self, x, v, force=None, context=None):
+    def forward(self, x, v, force=None, context=None, collect_christ=False):
         # 1. Macro-evolution (Standard flow)
-        x_m, v_m, ctx_m, christoffels = self.macro_manifold(x, v, force, context)
+        x_m, v_m, ctx_m, christoffels = self.macro_manifold(x, v, force, context, collect_christ=collect_christ)
         
         if not self.physics_config.get('fractal', {}).get('enabled', False):
             return x_m, v_m, ctx_m, christoffels
@@ -539,7 +537,7 @@ class FractalMLayer(nn.Module):
         # 4. Micro-evolution (Zooming in)
         # We use the macro-updated state as input to the sub-manifold
         # to refine the results in complex semantic regions.
-        x_f, v_f, _, _ = self.micro_manifold(x_m, v_m, force, context)
+        x_f, v_f, _, _ = self.micro_manifold(x_m, v_m, force, context, collect_christ=collect_christ)
         
         # 5. Recursive Blending
         # The micro-manifold provides a perturbative correction to the macro-flow

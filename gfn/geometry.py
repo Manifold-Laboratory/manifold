@@ -1,6 +1,11 @@
 import torch
 import torch.nn as nn
 
+try:
+    from gfn.cuda.ops import christoffel_fused, CUDA_AVAILABLE
+except ImportError:
+    CUDA_AVAILABLE = False
+
 class LowRankChristoffel(nn.Module):
     r"""
     Computes the Christoffel symbols \Gamma^k_{ij} using a low-rank decomposition.
@@ -62,11 +67,9 @@ class LowRankChristoffel(nn.Module):
         Acc = F_ext - Output
         """
         # Try Fused CUDA Kernel (Now supports Training via Autograd!)
-        if x is None and v.is_cuda:
+        if x is None and CUDA_AVAILABLE and v.is_cuda:
             try:
-                from gfn.cuda.ops import christoffel_fused, CUDA_AVAILABLE
-                if CUDA_AVAILABLE:
-                    return christoffel_fused(v, self.U, self.W)
+                return christoffel_fused(v, self.U, self.W)
             except Exception:
                 pass
         
@@ -209,22 +212,20 @@ class ReactiveChristoffel(LowRankChristoffel):
 
     def forward(self, v, x=None):
         # Try Fused CUDA Kernel (Supports Training via Autograd!)
-        if v.is_cuda:
+        if CUDA_AVAILABLE and v.is_cuda:
             try:
-                from gfn.cuda.ops import christoffel_fused, CUDA_AVAILABLE
-                if CUDA_AVAILABLE:
-                    # Pass Active Parameters
-                    # x and V.weight are needed for Singularities
-                    V_w = self.V.weight if (x is not None and self.active_cfg.get('singularities', {}).get('enabled', False)) else None
-                    pos_x = x if (V_w is not None) else None
-                    
-                    return christoffel_fused(
-                        v, self.U, self.W, 
-                        x=pos_x, V_w=V_w, 
-                        plasticity=self.plasticity if self.active_cfg.get('reactive_curvature', {}).get('enabled', False) else 0.0,
-                        sing_thresh=self.singularity_threshold,
-                        sing_strength=self.black_hole_strength
-                    )
+                # Pass Active Parameters
+                # x and V.weight are needed for Singularities
+                V_w = self.V.weight if (x is not None and self.active_cfg.get('singularities', {}).get('enabled', False)) else None
+                pos_x = x if (V_w is not None) else None
+                
+                return christoffel_fused(
+                    v, self.U, self.W, 
+                    x=pos_x, V_w=V_w, 
+                    plasticity=self.plasticity if self.active_cfg.get('reactive_curvature', {}).get('enabled', False) else 0.0,
+                    sing_thresh=self.singularity_threshold,
+                    sing_strength=self.black_hole_strength
+                )
             except Exception:
                 pass
 
