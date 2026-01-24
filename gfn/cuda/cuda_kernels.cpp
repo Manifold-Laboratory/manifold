@@ -171,8 +171,9 @@ extern "C" void launch_recurrent_manifold_fused(
     const float* forces, const float* U_stack, const float* W_stack,
     float* x_out_seq, float* reg_loss,
     int batch, int seq_len, int dim, int rank, int num_layers,
-    float dt, float dt_scale, int num_heads,
+    float dt, const float* dt_scales, const float* forget_rates, int num_heads,
     float plasticity, float sing_thresh, float sing_strength,
+    const float* W_mix_x, const float* W_mix_v,
     cudaStream_t stream
 );
 
@@ -182,8 +183,10 @@ extern "C" void launch_recurrent_manifold_backward(
     const float* forces, const float* U_stack, const float* W_stack,
     float* grad_x_init, float* grad_v_init, float* grad_forces,
     float* grad_U, float* grad_W,
+    const float* W_mix_x, const float* W_mix_v,
+    float* grad_W_mix_x, float* grad_W_mix_v,
     int batch_total, int seq_len, int dim, int rank, int num_layers, int num_heads,
-    float dt, float dt_scale,
+    float dt, const float* dt_scales, const float* forget_rates, float* grad_forget_rates,
     float plasticity, float sing_thresh, float sing_strength,
     cudaStream_t stream
 );
@@ -203,6 +206,14 @@ extern "C" void launch_head_mixing_fused(
     const float* W_x, const float* W_v,
     float* x_out, float* v_out,
     int heads, int batch, int dim,
+    cudaStream_t stream
+);
+
+extern "C" void launch_dynamic_gating_fused(
+    const float* x, const float* W1, const float* b1,
+    const float* W2, const float* b2,
+    float* dt_scale,
+    int batch, int dim, int hidden_dim,
     cudaStream_t stream
 );
 
@@ -349,11 +360,14 @@ torch::Tensor parallel_scan_fused_cuda(torch::Tensor a, torch::Tensor x, float p
     return y;
 }
 
+// (Declarations removed here, consolidated at top)
+
 std::vector<torch::Tensor> recurrent_manifold_fused_cuda(
     torch::Tensor x_state, torch::Tensor v_state,
     torch::Tensor forces, torch::Tensor U_stack, torch::Tensor W_stack,
-    float dt, float dt_scale, int num_heads,
-    float plasticity, float sing_thresh, float sing_strength
+    float dt, torch::Tensor dt_scales, torch::Tensor forget_rates, int num_heads,
+    float plasticity, float sing_thresh, float sing_strength,
+    torch::Tensor mix_x, torch::Tensor mix_v 
 ) {
     int batch = x_state.size(0);
     int dim = x_state.size(1);
@@ -364,26 +378,34 @@ std::vector<torch::Tensor> recurrent_manifold_fused_cuda(
     auto x_out_seq = torch::empty({batch, seq_len, dim}, x_state.options());
     auto reg_loss = torch::zeros({batch}, x_state.options());
     
+    const float* mix_x_ptr = (mix_x.numel() > 0) ? mix_x.data_ptr<float>() : nullptr;
+    const float* mix_v_ptr = (mix_v.numel() > 0) ? mix_v.data_ptr<float>() : nullptr;
+    const float* dt_scales_ptr = (dt_scales.numel() > 0) ? dt_scales.data_ptr<float>() : nullptr;
+    const float* forget_rates_ptr = (forget_rates.numel() > 0) ? forget_rates.data_ptr<float>() : nullptr;
+    
     launch_recurrent_manifold_fused(
         x_state.data_ptr<float>(), v_state.data_ptr<float>(),
         forces.data_ptr<float>(), U_stack.data_ptr<float>(), W_stack.data_ptr<float>(),
         x_out_seq.data_ptr<float>(), reg_loss.data_ptr<float>(),
         batch, seq_len, dim, rank, num_layers,
-        dt, dt_scale, num_heads,
+        dt, dt_scales_ptr, forget_rates_ptr, num_heads,
         plasticity, sing_thresh, sing_strength,
+        mix_x_ptr, mix_v_ptr,
         at::cuda::getCurrentCUDAStream()
     );
     
     return {x_state, v_state, x_out_seq, reg_loss};
-    return {x_state, v_state, x_out_seq, reg_loss};
 }
+
+// (Declarations removed here, consolidated at top)
 
 std::vector<torch::Tensor> recurrent_manifold_backward_cuda(
     torch::Tensor grad_x_seq, torch::Tensor grad_x_final, torch::Tensor grad_v_final,
     torch::Tensor x_final, torch::Tensor v_final,
     torch::Tensor forces, torch::Tensor U_stack, torch::Tensor W_stack,
-    float dt, float dt_scale, int num_heads,
-    float plasticity, float sing_thresh, float sing_strength
+    float dt, torch::Tensor dt_scales, torch::Tensor forget_rates, int num_heads,
+    float plasticity, float sing_thresh, float sing_strength,
+    torch::Tensor mix_x, torch::Tensor mix_v
 ) {
     int batch_total = x_final.size(0);
     int dim = x_final.size(1);
@@ -396,6 +418,19 @@ std::vector<torch::Tensor> recurrent_manifold_backward_cuda(
     auto grad_forces = torch::zeros_like(forces);
     auto grad_U = torch::zeros_like(U_stack);
     auto grad_W = torch::zeros_like(W_stack);
+    
+    // Mixing Logic
+    const bool use_mixing = (mix_x.numel() > 0 && mix_v.numel() > 0);
+    auto grad_mix_x = use_mixing ? torch::zeros_like(mix_x) : torch::empty(0, x_final.options());
+    auto grad_mix_v = use_mixing ? torch::zeros_like(mix_v) : torch::empty(0, x_final.options());
+    
+    const float* mix_x_ptr = use_mixing ? mix_x.data_ptr<float>() : nullptr;
+    const float* mix_v_ptr = use_mixing ? mix_v.data_ptr<float>() : nullptr;
+    float* g_mix_x_ptr = use_mixing ? grad_mix_x.data_ptr<float>() : nullptr;
+    float* g_mix_v_ptr = use_mixing ? grad_mix_v.data_ptr<float>() : nullptr;
+    const float* dt_scales_ptr = (dt_scales.numel() > 0) ? dt_scales.data_ptr<float>() : nullptr;
+    const float* forget_rates_ptr = (forget_rates.numel() > 0) ? forget_rates.data_ptr<float>() : nullptr;
+    auto grad_forget_rates = torch::zeros_like(forget_rates);
 
     const float* gx_seq_ptr = (grad_x_seq.numel() > 0) ? grad_x_seq.data_ptr<float>() : nullptr;
     const float* gx_final_ptr = (grad_x_final.numel() > 0) ? grad_x_final.data_ptr<float>() : nullptr;
@@ -407,13 +442,14 @@ std::vector<torch::Tensor> recurrent_manifold_backward_cuda(
         forces.data_ptr<float>(), U_stack.data_ptr<float>(), W_stack.data_ptr<float>(),
         grad_x_init.data_ptr<float>(), grad_v_init.data_ptr<float>(), grad_forces.data_ptr<float>(),
         grad_U.data_ptr<float>(), grad_W.data_ptr<float>(),
+        mix_x_ptr, mix_v_ptr, g_mix_x_ptr, g_mix_v_ptr,
         batch_total, seq_len, dim, rank, num_layers, num_heads,
-        dt, dt_scale,
+        dt, dt_scales_ptr, forget_rates_ptr, grad_forget_rates.data_ptr<float>(),
         plasticity, sing_thresh, sing_strength,
         at::cuda::getCurrentCUDAStream()
     );
 
-    return {grad_x_init, grad_v_init, grad_forces, grad_U, grad_W};
+    return {grad_x_init, grad_v_init, grad_forces, grad_U, grad_W, grad_mix_x, grad_mix_v, grad_forget_rates};
 }
 
 std::vector<torch::Tensor> manifold_step_fused_cuda(
@@ -472,6 +508,29 @@ std::vector<torch::Tensor> head_mixing_fused_cuda(
     return {x_out, v_out};
 }
 
+torch::Tensor dynamic_gating_fused_cuda(
+    torch::Tensor x,
+    torch::Tensor W1, torch::Tensor b1,
+    torch::Tensor W2, torch::Tensor b2
+) {
+    int batch = x.size(0);
+    int dim = x.size(1);
+    int hidden_dim = W1.size(0);
+    
+    auto dt_scale = torch::empty({batch, 1}, x.options());
+    
+    launch_dynamic_gating_fused(
+        x.data_ptr<float>(),
+        W1.data_ptr<float>(), b1.data_ptr<float>(),
+        W2.data_ptr<float>(), b2.data_ptr<float>(),
+        dt_scale.data_ptr<float>(),
+        batch, dim, hidden_dim,
+        at::cuda::getCurrentCUDAStream()
+    );
+    
+    return dt_scale;
+}
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("christoffel_fused", &christoffel_fused_cuda);
     m.def("christoffel_backward", &christoffel_backward_cuda);
@@ -489,8 +548,19 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("rk4_fused", &rk4_fused_cuda);
     m.def("dormand_prince_fused", &dormand_prince_fused_cuda);
     m.def("parallel_scan_fused", &parallel_scan_fused_cuda);
-    m.def("recurrent_manifold_fused", &recurrent_manifold_fused_cuda);
-    m.def("recurrent_manifold_backward", &recurrent_manifold_backward_cuda);
+    m.def("recurrent_manifold_fused", &recurrent_manifold_fused_cuda, "Fused Recurrent Manifold Kernel with Multi-Head Mixing",
+          py::arg("x_state"), py::arg("v_state"), py::arg("forces"), py::arg("U_stack"), py::arg("W_stack"),
+          py::arg("dt"), py::arg("dt_scales"), py::arg("forget_rates"), py::arg("num_heads"),
+          py::arg("plasticity")=0.0, py::arg("sing_thresh")=1.0, py::arg("sing_strength")=1.0,
+          py::arg("mix_x")=torch::Tensor(), py::arg("mix_v")=torch::Tensor());
+    m.def("recurrent_manifold_backward", &recurrent_manifold_backward_cuda, "Backprop for Recurrent Manifold Fused Kernel",
+          py::arg("grad_x_seq"), py::arg("grad_x_final"), py::arg("grad_v_final"),
+          py::arg("x_final"), py::arg("v_final"),
+          py::arg("forces"), py::arg("U_stack"), py::arg("W_stack"),
+          py::arg("dt"), py::arg("dt_scales"), py::arg("forget_rates"), py::arg("num_heads"),
+          py::arg("plasticity")=0.0, py::arg("sing_thresh")=1.0, py::arg("sing_strength")=1.0,
+          py::arg("mix_x")=torch::Tensor(), py::arg("mix_v")=torch::Tensor());
     m.def("manifold_step_fused", &manifold_step_fused_cuda);
     m.def("head_mixing_fused", &head_mixing_fused_cuda);
+    m.def("dynamic_gating_fused", &dynamic_gating_fused_cuda);
 }

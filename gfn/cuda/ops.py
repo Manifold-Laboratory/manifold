@@ -32,26 +32,36 @@ try:
              # (This is useful for development but fragile on Windows)
              print("[GFN CUDA] Pre-compiled extension not found, attempting JIT compilation...")
              gfn_cuda = load(
-                name='gfn_cuda_v2_6',
+                name='gfn_cuda_v5_0',
                 sources=[
                     os.path.join(cuda_dir, 'cuda_kernels.cpp'),
                     os.path.join(cuda_dir, 'src', 'geometry', 'christoffel_fused.cu'),
+                    os.path.join(cuda_dir, 'src', 'geometry', 'lowrank_christoffel.cu'),
+                    os.path.join(cuda_dir, 'src', 'geometry', 'reactive_christoffel.cu'),
                     os.path.join(cuda_dir, 'src', 'integrators', 'leapfrog_fused.cu'),
-                    os.path.join(cuda_dir, 'src', 'integrators', 'yoshida_fused.cu'),
                     os.path.join(cuda_dir, 'src', 'integrators', 'euler_fused.cu'),
-                    os.path.join(cuda_dir, 'src', 'integrators', 'verlet_fused.cu'),
-                    os.path.join(cuda_dir, 'src', 'integrators', 'forest_ruth_fused.cu'),
-                    os.path.join(cuda_dir, 'src', 'integrators', 'omelyan_fused.cu'),
                     os.path.join(cuda_dir, 'src', 'integrators', 'heun_fused.cu'),
                     os.path.join(cuda_dir, 'src', 'integrators', 'rk4_fused.cu'),
+                    os.path.join(cuda_dir, 'src', 'integrators', 'yoshida_fused.cu'),
+                    os.path.join(cuda_dir, 'src', 'integrators', 'forest_ruth_fused.cu'),
+                    os.path.join(cuda_dir, 'src', 'integrators', 'omelyan_fused.cu'),
+                    os.path.join(cuda_dir, 'src', 'integrators', 'verlet_fused.cu'),
                     os.path.join(cuda_dir, 'src', 'integrators', 'dormand_prince_fused.cu'),
                     os.path.join(cuda_dir, 'src', 'integrators', 'recurrent_manifold_fused.cu'),
-                    os.path.join(cuda_dir, 'src', 'layers', 'parallel_scan_fused.cu'),
+                    os.path.join(cuda_dir, 'src', 'integrators', 'recurrent_manifold_backward.cu'),
+                    os.path.join(cuda_dir, 'src', 'integrators', 'parallel_scan_fused.cu'),
+                    os.path.join(cuda_dir, 'src', 'layers', 'manifold_step.cu'),
+                    os.path.join(cuda_dir, 'src', 'layers', 'head_mixing.cu'),
+                    os.path.join(cuda_dir, 'src', 'layers', 'dynamic_gating.cu'),
                 ],
                 extra_cuda_cflags=['-O3', '--use_fast_math', '-m64', '-ccbin', r'C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64\cl.exe'],
                 extra_cflags=['/DNOMINMAX', '/DWIN32_LEAN_AND_MEAN', '/Zc:twoPhase-', '/I' + os.path.join(cuda_dir, 'include')],
                 verbose=True
-            )
+             )
+             print(f"[GFN CUDA] JIT Compilation v5_0 SUCCESS.")
+        except Exception as e:
+            print(f"[GFN CUDA] JIT Compilation FAILED: {e}")
+            CUDA_AVAILABLE = False
     
     CUDA_AVAILABLE = True
     print("[GFN CUDA] Professional kernels loaded successfully (Autograd, Parallel Scan, Trajectory Fusion)")
@@ -157,6 +167,9 @@ def leapfrog_fused(x, v, f, U, W, dt, dt_scale=1.0, steps=1):
             result = leapfrog_fused_autograd(x, v, f, U, W, dt, dt_scale, steps)
             if result is not None:
                 return result
+            # If autograd failed but we need grads, DO NOT use raw kernel. 
+            # Return None to trigger Python fallback in Integrator.
+            return None
         
         # Inference-only path (no gradients)
         return gfn_cuda.leapfrog_fused(x.contiguous(), v.contiguous(), f.contiguous() if f is not None else torch.zeros_like(x), 
@@ -332,21 +345,64 @@ def head_mixing_fused(x_heads, v_heads, W_x, W_v):
     v_out = torch.matmul(v_concat, W_v.t())
     return x_out, v_out
 
-def recurrent_manifold_fused(x_state, v_state, forces, U_stack, W_stack, dt, dt_scale=1.0, num_heads=1,
-                            plasticity=0.0, sing_thresh=1.0, sing_strength=1.0):
+def dynamic_gating_fused(x, W1, b1, W2, b2):
     """
-    ULTRA-PERFORMANCE Recurrent Manifold Fused Op.
-    Processes ENTIRE sequence and ALL layers in ONE kernel launch.
-    Now supports multi-head processing and fused regularization!
+    Dynamic time-step gating via curvature estimation.
+    
+    Args:
+        x: [B, D] input state
+        W1: [D/4, D] first layer weight
+        b1: [D/4] first layer bias
+        W2: [1, D/4] second layer weight  
+        b2: [1] second layer bias
     
     Returns:
-        x_state, v_state, x_seq, reg_loss
+        dt_scale: [B, 1] gating factor in [0, 1]
     """
-    if CUDA_AVAILABLE and x_state.is_cuda:
-        return gfn_cuda.recurrent_manifold_fused(
-            x_state.contiguous(), v_state.contiguous(), 
-            forces.contiguous(), U_stack.contiguous(), W_stack.contiguous(), 
-            dt, dt_scale, num_heads,
-            plasticity, sing_thresh, sing_strength
+    if CUDA_AVAILABLE and x.is_cuda:
+        return gfn_cuda.dynamic_gating_fused(
+            x.contiguous(),
+            W1.contiguous(), b1.contiguous(),
+            W2.contiguous(), b2.contiguous()
         )
-    return None
+    
+    # Fallback PyTorch
+    hidden = torch.tanh(torch.matmul(x, W1.t()) + b1)
+    out = torch.sigmoid(torch.matmul(hidden, W2.t()) + b2)
+    return out
+
+def recurrent_manifold_fused(x_state, v_state, forces, U_stack, W_stack, dt, dt_scales, forget_rates, num_heads=1,
+                            plasticity=0.0, sing_thresh=1.0, sing_strength=1.0,
+                            mix_x=None, mix_v=None):
+    if not CUDA_AVAILABLE or not x_state.is_cuda: return None
+    if not isinstance(dt_scales, torch.Tensor):
+        dt_scales = torch.tensor([float(dt_scales)]*num_heads, device=x_state.device, dtype=torch.float32)
+    if not isinstance(forget_rates, torch.Tensor):
+        forget_rates = torch.tensor([float(forget_rates)]*num_heads, device=x_state.device, dtype=torch.float32)
+        
+    return gfn_cuda.recurrent_manifold_fused(
+        x_state.contiguous(), v_state.contiguous(), 
+        forces.contiguous(), U_stack.contiguous(), W_stack.contiguous(), 
+        dt, dt_scales, forget_rates, num_heads,
+        plasticity, sing_thresh, sing_strength,
+        mix_x if mix_x is not None else torch.empty(0, x_state.options()),
+        mix_v if mix_v is not None else torch.empty(0, x_state.options())
+    )
+
+def recurrent_manifold_backward(grad_x_seq, grad_x_final, grad_v_final, x_final, v_final, forces, U_stack, W_stack,
+                               dt, dt_scales, forget_rates, num_heads=1,
+                               plasticity=0.0, sing_thresh=1.0, sing_strength=1.0,
+                               mix_x=None, mix_v=None):
+    if not CUDA_AVAILABLE or not x_final.is_cuda: return None
+    if not isinstance(dt_scales, torch.Tensor):
+        dt_scales = torch.tensor([float(dt_scales)]*num_heads, device=x_final.device, dtype=torch.float32)
+    if not isinstance(forget_rates, torch.Tensor):
+        forget_rates = torch.tensor([float(forget_rates)]*num_heads, device=x_final.device, dtype=torch.float32)
+        
+    return gfn_cuda.recurrent_manifold_backward(
+        grad_x_seq, grad_x_final, grad_v_final, x_final, v_final, 
+        forces.contiguous(), U_stack.contiguous(), W_stack.contiguous(), 
+        dt, dt_scales, forget_rates, num_heads, plasticity, sing_thresh, sing_strength,
+        mix_x if mix_x is not None else torch.empty(0, x_final.options()),
+        mix_v if mix_v is not None else torch.empty(0, x_final.options())
+    )

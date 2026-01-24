@@ -143,11 +143,16 @@ class FunctionalEmbedding(nn.Module):
         self.net = nn.Sequential(*net)
         self.out_proj = nn.Linear(hidden_dim, emb_dim)
         
+        # LEVEL 12: HYPER-SIGNAL INTERFACE
+        # Functional embeddings don't have standard weights to rescale.
+        # We provide this scalar to control force impulse magnitude.
+        self.impulse_scale = 2.0 
+        
         # Proper SIREN Init (omega_0=30)
         # SineLayer handles its own init, we just apply output boost
         with torch.no_grad():
-            # self.net[0] is SineLayer, init is already correct there
-            self.out_proj.weight.data *= 1.5 # Boost signal for manifold force
+            # Initial weight boost for manifold-force awareness
+            self.out_proj.weight.data *= 1.5 
             nn.init.zeros_(self.out_proj.bias)
             
         if self.mode == 'sinusoidal':
@@ -182,9 +187,9 @@ class FunctionalEmbedding(nn.Module):
         x_out = self.net(coords)
         out = self.out_proj(x_out)
         
-        # 3. Boost scale to match standard embedding variance
-        # SIREN + Xavier yields ~0.4, so 1.5x - 2.0x is safer for residuals
-        out = out * 1.5
+        # 3. Apply Multiplier
+        # Controlled by Level 12 impulse_scale interface
+        out = out * self.impulse_scale
         
         # Enforce Zero-Input = Zero-Force (Critical for Inertial Memory tasks like Parity)
         # If all coordinate bits are 0 (ID=0), force should be 0.

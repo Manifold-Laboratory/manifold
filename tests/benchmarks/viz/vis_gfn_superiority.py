@@ -22,7 +22,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 # Import GFN Models & Physics
-from gfn.model import Manifold
+from gfn.model import Manifold  # This is the correct class name
 from gfn.optim import RiemannianAdam
 from gfn.losses import geodesic_regularization
 
@@ -44,30 +44,36 @@ class ParityTask:
 
 def train_step_manifold(model, optimizer, scheduler, inputs, targets, device):
     optimizer.zero_grad()
-    logits, (x_final, v_final), christoffels = model(inputs)
+    # CRITICAL: collect_christ=False to enable CUDA fused kernel
+    logits, (x_final, v_final), christoffels = model(inputs, collect_christ=False)
     
     # Implicit Readout Target Alignment
     coord_dim = model.physics_config.get('embedding', {}).get('coord_dim', 16)
     mask = 2**torch.arange(coord_dim).to(device)
     target_bits = (targets.unsqueeze(-1) & mask) > 0
-    target_coords = target_bits.float() * 2 - 1
+    target_bits = target_bits.float() # Standard 0/1
     
-    # Regression Loss (strictly for relevant bit)
-    loss_mse = nn.MSELoss()(logits[:, :, 0], target_coords[:, :, 0])
+    # Classification Loss (BCE for relevant bit)
+    loss_bce = nn.BCEWithLogitsLoss()(logits[:, :, 0], target_bits[:, :, 0])
     
-    # Physics Regularization
     loss_phy = 0.0
     if christoffels:
-        loss_phy += geodesic_regularization(None, christoffels, lambda_g=0.001)
+        loss_phy = geodesic_regularization(None, christoffels, lambda_g=0.001)
         
-    total_loss = loss_mse + loss_phy
+    total_loss = loss_bce + loss_phy
     total_loss.backward()
-    torch.nn.utils.clip_grad_norm_(model.parameters(), 0.1)
+    # Level 12: Relaxed clipping to escape 0.69
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     optimizer.step()
     if scheduler: scheduler.step()
     
     pred_bits = (logits[:, :, 0] > 0.0).long()
     acc = (pred_bits == targets).float().mean().item()
+    
+    # Level 3: Update temperature schedule
+    if hasattr(model.readout, 'update_step'):
+        model.readout.update_step()
+        
     return total_loss.item(), acc
 
 def train_step_gpt(model, optimizer, scheduler, inputs, targets, device):
@@ -87,11 +93,11 @@ def train_step_gpt(model, optimizer, scheduler, inputs, targets, device):
 def train_model(model, max_steps=1000, device='cuda'):
     is_manifold = isinstance(model, Manifold)
     if is_manifold:
-        optimizer = RiemannianAdam(model.parameters(), lr=1e-3, weight_decay=1e-4)
+        optimizer = RiemannianAdam(model.parameters(), lr=3e-4, weight_decay=1e-4)
     else:
         optimizer = optim.AdamW(model.parameters(), lr=3e-4, weight_decay=1e-4)
 
-    scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=1e-3 if is_manifold else 3e-4, total_steps=max_steps)
+    scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=3e-4, total_steps=max_steps)
     model.train()
     
     history = {"loss": [], "acc": []}
@@ -153,15 +159,27 @@ def run_superiority_benchmark():
         'embedding': {'type': 'functional', 'mode': 'binary', 'coord_dim': 16},
         'readout': {'type': 'implicit', 'coord_dim': 16},
         'active_inference': {'enabled': True, 'plasticity': 0.1},
-        'fractal': {'enabled': False}, # Keep disabled for baseline stability
+        'fractal': {'enabled': True}, 
         'singularities': {'enabled': True, 'strength': 5.0}
     }
     
+    # LEVEL 12: FORCE AMPLIFICATION
+    # Scaling input forces by 10x to ensure representational separability
     manifold = Manifold(
         vocab_size=2, dim=dim, depth=6, heads=1, 
         integrator_type='leapfrog',
         physics_config=physics_config
     ).to(device)
+    
+    # Ensure impulse embedding is energetic
+    # LEVEL 12: Reset to stable scale (CUDA reduction fix handles normalization)
+    if hasattr(manifold.embedding, 'impulse_scale'):
+        manifold.embedding.impulse_scale = 2.0
+    
+    # Sync Level 3 schedule
+    if hasattr(manifold.readout, 'set_max_steps'):
+        manifold.readout.set_max_steps(1000)
+        
     gpt = MicroGPT(vocab_size=2, dim=dim, depth=6, heads=1, max_len=2000).to(device)
     
     # 2. Training Phase

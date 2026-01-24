@@ -61,5 +61,5 @@ echo.
 echo [SUCCESS] Kernels compiled to local .pyd file!
 echo Verified import:
 
-python -c " import gfn_cuda; print('SUCCESS: gfn_cuda module imported directly!')"
+python -c "import gfn_cuda; print('SUCCESS: gfn_cuda module imported directly!')"
 pause

@@ -30,7 +30,7 @@ class Manifold(nn.Module):
     """
     
     
-    def __init__(self, vocab_size, dim=256, depth=4, rank=32, heads=4, integrator_type='heun', use_scan=False, physics_config=None):
+    def __init__(self, vocab_size, dim=256, depth=4, rank=32, heads=4, integrator_type='heun', base_dt=1.0, use_scan=False, physics_config=None):
         super().__init__()
         self.dim = dim
         self.depth = depth
@@ -73,7 +73,7 @@ class Manifold(nn.Module):
                     self.layers.append(FractalMLayer(dim, heads=heads, rank=rank, integrator_type=integrator_type, 
                                                      physics_config=self.physics_config, layer_idx=idx, total_depth=depth))
                 else:
-                    self.layers.append(MLayer(dim, heads=heads, rank=rank, integrator_type=integrator_type, 
+                    self.layers.append(MLayer(dim, heads=heads, rank=rank, base_dt=base_dt, integrator_type=integrator_type, 
                                              physics_config=self.physics_config, layer_idx=idx, total_depth=depth))
         
         # Output projection
@@ -84,18 +84,17 @@ class Manifold(nn.Module):
         
         if readout_type == 'implicit' or readout_type == 'binary':
              coord_dim = emb_cfg.get('coord_dim', 16) 
-             # MLP Decoder: Hard threshold (original)
-             self.readout = nn.Sequential(
-                 nn.Linear(dim, dim),
-                 nn.GELU(),
-                 nn.Linear(dim, coord_dim)
-             )
-             print(f"[*] Using BINARY READOUT (Hard Threshold MLP → {coord_dim}-d)")
+             # Level 3: Temperature-Annealed Sigmoid MLP
+             self.readout = ImplicitReadout(dim, coord_dim)
+             print(f"[*] Using IMPLICIT READOUT (Annealed MLP → {coord_dim}-d)")
         else:
              self.readout = nn.Linear(dim, vocab_size)
         
         # Improved Initialization (Critical for convergence)
         # Non-zero random init helps early gradient flow
+        # LEVEL 7: MOMENTUM INJECTION
+        # Restart with small random noise to avoid the "Flat Geometry" trap
+        # This provides initial velocity and position for geodesic steering
         self.x0 = nn.Parameter(torch.randn(1, dim) * 0.02)
         self.v0 = nn.Parameter(torch.randn(1, dim) * 0.01)
 
@@ -104,7 +103,11 @@ class Manifold(nn.Module):
         
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
-            nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            # LEVEL 5: READOUT SCALE ALIGNMENT
+            # Readout needs higher variance to overcome temperature annealing
+            # Standard manifold weights use 0.02, but Readout uses 0.1
+            std = 0.1 if hasattr(module, 'is_readout') else 0.02
+            nn.init.normal_(module.weight, mean=0.0, std=std)
             if module.bias is not None:
                 nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
@@ -192,6 +195,7 @@ class Manifold(nn.Module):
             
             # Trajectory Fusion Path: Fuses Seq_Len × Depth × Heads into ONE kernel launch.
             # Requirements: no scan, depth > 0, no christoffel metadata collection.
+            # Now supports Multi-Head Mixing!
             can_fuse = (not self.use_scan and self.depth > 0 and not collect_christ)
             
             if can_fuse:
@@ -203,13 +207,30 @@ class Manifold(nn.Module):
                         U_list = []
                         W_list = []
                         for layer in self.layers:
+                            # Handle Fractal Wrapper
+                            target_layer = layer
+                            if hasattr(layer, 'macro_manifold'):
+                                target_layer = layer.macro_manifold
+                                
                             for head_idx in range(self.heads):
-                                U_list.append(layer.christoffels[head_idx].U)
-                                W_list.append(layer.christoffels[head_idx].W)
-                        
+                                U_list.append(target_layer.christoffels[head_idx].U)
+                                W_list.append(target_layer.christoffels[head_idx].W)
                         U_stack = torch.stack(U_list)
                         W_stack = torch.stack(W_list)
-                        base_dt = self.layers[0].base_dt
+                        # Use base_dt from the first actual MLayer
+                        first_layer = self.layers[0]
+                        if hasattr(first_layer, 'macro_manifold'): first_layer = first_layer.macro_manifold
+                        base_dt = first_layer.base_dt
+                        
+                        # Mixing Weights (Use Layer 0's projections as standard)
+                        # NOTE: This assumes all layers use same mixing or we use the first one's for all.
+                        # `recurrent_manifold_fused` currently takes ONE set of mixing weights for the whole depth.
+                        # This is an approximation if layers differ, but standard Transformers share architecture.
+                        mix_x = None
+                        mix_v = None
+                        if self.heads > 1 and hasattr(self.layers[0], 'out_proj_x'):
+                                mix_x = self.layers[0].out_proj_x.weight
+                                mix_v = self.layers[0].out_proj_v.weight
                         
                         # 🚀 DISPATCH TO FUSED KERNEL
                         
@@ -224,26 +245,67 @@ class Manifold(nn.Module):
 
                         if self.training:
                             from .cuda.autograd import recurrent_manifold_fused_autograd
+                            # LEVEL 6: RESTORED NORMALIZATION
+                            # We restore LayerNorm on Hamiltonian state x to prevent explosion.
+                            f_layer = self.layers[0]
+                            if hasattr(f_layer, 'macro_manifold'): f_layer = f_layer.macro_manifold
+                            x_norm = f_layer.norm_x(x)
+                            # LEVEL 8: STRICT UNIT-NORM ENERGY
+                            # Force |v|=1.0 to ensure consistent Hamiltonian momentum across paths
+                            v_norm_val = torch.norm(v, dim=-1, keepdim=True) + 1e-6
+                            v_unit = v / v_norm_val
+                            
+                            # LEVEL 9 & 10: MULTI-SCALE + SPRING MEMORY
+                            # Passing learnable dt_params and spring_ks
+                            # first_layer is defined above in the stack building section, 
+                            # but let's re-verify here for clarity
+                            f_layer = self.layers[0]
+                            if hasattr(f_layer, 'macro_manifold'): f_layer = f_layer.macro_manifold
+                            
+                            dt_scales = torch.nn.functional.softplus(f_layer.dt_params)
+                            # Extract scalar forget rate per head from forget_gate bias (approx)
+                            # Logic: sigmoid(bias) acts as friction.
+                            forget_rates = torch.sigmoid(f_layer.christoffels[0].forget_gate.bias.mean())
+                            if forget_rates.numel() == 1:
+                                forget_rates = forget_rates.expand(self.heads)
+                            
                             res = recurrent_manifold_fused_autograd(
-                                x, v, all_forces * mask, U_stack, W_stack, base_dt, 1.0, self.heads,
-                                plasticity, sing_thresh, sing_strength
+                                x_norm, v_unit, all_forces * mask, U_stack, W_stack, base_dt, dt_scales, forget_rates, self.heads,
+                                plasticity, sing_thresh, sing_strength,
+                                mix_x, mix_v
                             )
                         else:
+                            # Manual Pre-LayerNorm and V-Clamp
+                            f_layer = self.layers[0]
+                            if hasattr(f_layer, 'macro_manifold'): f_layer = f_layer.macro_manifold
+                            
+                            x_norm = f_layer.norm_x(x)
+                            v_norm_val = torch.norm(v, dim=-1, keepdim=True) + 1e-6
+                            v_unit = v / v_norm_val
+                            
+                            # LEVEL 9 & 10 (Inference)
+                            dt_scales = torch.nn.functional.softplus(f_layer.dt_params)
+                            forget_rates = torch.sigmoid(f_layer.christoffels[0].forget_gate.bias.mean()).expand(self.heads)
+                            
                             res = recurrent_manifold_fused(
-                                x, v, all_forces * mask, U_stack, W_stack, base_dt, 1.0, self.heads,
-                                plasticity, sing_thresh, sing_strength
+                                x_norm, v_unit, all_forces * mask, U_stack, W_stack, base_dt, dt_scales, forget_rates, self.heads,
+                                plasticity, sing_thresh, sing_strength,
+                                mix_x, mix_v
                             )
                         
                         if res is not None:
                             x, v, x_seq, reg_loss = res
-                            # Readout sequence
-                            out_seq = self.readout_norm(x_seq)
+                            # LEVEL 6: READOUT PURITY
+                            # We bypass readout_norm to see the RAW manifold state x.
+                            # out_seq = self.readout_norm(x_seq)
+                            out_seq = x_seq
                             logits = self.readout(out_seq)
                             
                             # Note: reg_loss from kernel is [batch], loss functions might expect list
                             return logits, (x, v), [reg_loss]
                 except Exception as e:
                     # Fallback to standard loop if fusion fails
+                    print(f"[MANIFOLD] Fused Kernel Failed: {e}")
                     pass
 
             for t in range(seq_len):

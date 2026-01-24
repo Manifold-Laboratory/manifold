@@ -30,12 +30,13 @@ setup(
                 'src/integrators/manifold_step.cu',
                 'src/layers/parallel_scan_fused.cu',
                 'src/layers/head_mixing.cu',
+                'src/layers/dynamic_gating.cu',
             ],
             include_dirs=[os.path.join(cuda_dir, 'include')],
             extra_compile_args={
                 'cxx': ['/std:c++17', '/DNOMINMAX', '/DWIN32_LEAN_AND_MEAN', '/permissive-', '/Zc:__cplusplus', '/Zm2000', '/wd4996'],
                 'nvcc': [
-                    '-O3', '--use_fast_math', '-std=c++17',
+                    '-O2', '--use_fast_math', '-std=c++17',
                     '-Xcompiler', '/std:c++17', 
                     '-Xcompiler', '/DNOMINMAX',
                     '-Xcompiler', '/DWIN32_LEAN_AND_MEAN',

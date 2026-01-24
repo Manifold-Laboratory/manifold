@@ -26,10 +26,12 @@ class LowRankChristoffel(nn.Module):
         # Factors to reconstruct Gamma
         # U: [dim, rank] - represents the "basis" for the input indices i, j
         # W: [dim, rank] - represents the "basis" for the output index k (or weighting)
-        # Init very small to start with FLAT manifold (Euclidean geometry)
-        # This helps in preserving long-term dependencies (linear dynamics)
-        self.U = nn.Parameter(torch.randn(dim, rank) * 0.001)
-        self.W = nn.Parameter(torch.randn(dim, rank) * 0.001)
+        # LEVEL 7: CURVATURE INJECTION
+        # Higher initialization (0.2) ensures manifold logic is energetic from step 1
+        # LEVEL 10 MODIFY: Balanced Initialization (0.05) - CONVERGENCE SCALE
+        # Moderate heat to escape the flat geometry trap.
+        self.U = nn.Parameter(torch.randn(dim, rank) * 0.05)
+        self.W = nn.Parameter(torch.randn(dim, rank) * 0.05)
         
         # Friction coefficient for Conformal Symplectic System
         self.friction = self.config.get('stability', {}).get('friction', 0.05)
@@ -49,69 +51,54 @@ class LowRankChristoffel(nn.Module):
         nn.init.zeros_(self.gate_proj.weight)
         nn.init.constant_(self.gate_proj.bias, 2.0) # Start OPEN (sigmoid(2) ~ 0.88)
         
-        # === Dynamic Friction (The Forget Gate) ===
-        # Replaces static friction.
-        # Logic: If context switch needed -> High Friction -> Dissipate Energy -> Forget.
-        # If long-term dependency -> Low Friction -> Conserve Energy -> Remember.
+        # === DYNAMIC FRICTION (THE FORGET GATE) ===
+        # Replaces oscillator logic. Dissipates energy to prevent NaNs.
         # F_damp = - sigma(Gate(x)) * v
         self.forget_gate = nn.Linear(dim, dim)
-        # Init to low friction (preserve memory by default = 0.05 equivalent)
+        # Init to low friction (preserve memory by default)
         nn.init.normal_(self.forget_gate.weight, std=0.01)
-        nn.init.constant_(self.forget_gate.bias, -3.0) # sigmoid(-3) approx 0.047 (close to static 0.05)
+        nn.init.constant_(self.forget_gate.bias, -3.0) # sigmoid(-3) approx 0.05
         
     def forward(self, v, x=None):
         """
         Compute Generalized Force: Γ(v, v) + Friction(x)*v
         
-        Supports both single head [B, D] and batched heads [H, B, d].
+        Output represents the effective "Resistance" to motion.
+        Acc = F_ext - Output
         """
-        # Try Fused Modular CUDA Kernel (Only for single head currently)
-        if CUDA_AVAILABLE and v.is_cuda and v.dim() == 2:
-            try:
-                from gfn.cuda.ops import lowrank_christoffel_fused
-                return lowrank_christoffel_fused(v, self.U, self.W)
-            except Exception:
-                pass
-        
-        # Vectorized Implementation (Supports implicit heads via broadcasting)
-        # v: [B, D] or [H, B, d]
-        # U: [D, R] or [H, d, R]
-        
+        # Try Fused CUDA Kernel first (Placeholder: Kernel needs to support forget_gate)
+        try:
+            from gfn.cuda.ops import lowrank_christoffel_fused, CUDA_AVAILABLE
+            if CUDA_AVAILABLE and v.is_cuda and v.dim() == 2:
+                x_empty = torch.empty(0, device=v.device)
+                V_empty = torch.empty(0, device=v.device)
+                gamma_cuda = lowrank_christoffel_fused(v, self.U, self.W, x_empty, V_empty, 0.0, 1.0, 1.0)
+                
+                # Apply friction manually if CUDA kernel doesn't support it yet
+                if x is not None:
+                     friction = torch.sigmoid(self.forget_gate(x))
+                     gamma_cuda = gamma_cuda + friction * v
+                return torch.clamp(gamma_cuda, -self.clamp_val, self.clamp_val)
+        except Exception:
+            pass
+    
+        # Fallback: Vectorized Implementation
         if v.dim() == 3 and self.U.dim() == 3:
-            # Batched Heads Path: v is [H, B, d], U is [H, d, R]
-            proj = torch.bmm(v, self.U) # [H, B, R]
+            proj = torch.bmm(v, self.U) 
             norm = torch.norm(proj, dim=-1, keepdim=True)
             scale = 1.0 / (1.0 + norm)
-            sq = (proj * proj) * scale # [H, B, R]
-            gamma = torch.bmm(sq, self.W.transpose(1, 2)) # [H, B, d]
+            sq = (proj * proj) * scale 
+            gamma = torch.bmm(sq, self.W.transpose(1, 2)) 
         else:
-            # Standard Path
             proj = torch.matmul(v, self.U)
             norm = torch.norm(proj, dim=-1, keepdim=True)
             scale = 1.0 / (1.0 + norm)
             sq = (proj * proj) * scale
             gamma = torch.matmul(sq, self.W.t())
             
-        # Add Damping/Gating logic if x is provided (Vectorized)
+        # APPLY DYNAMIC FRICTION (DAMPING)
         if x is not None:
-            # Ensure x is reshaped to match v if batched
-            if v.dim() == 3 and x.dim() == 2:
-                # x: [B, D] -> [H, B, d]
-                H = v.shape[0]
-                x_reshaped = x.view(x.shape[0], H, -1).transpose(0, 1)
-            else:
-                x_reshaped = x
-                
-            # Dynamic Curvature Modulation
-            modulation = torch.sigmoid(self.V(x_reshaped))
-            gamma = gamma * (1.0 + modulation)
-            
-            # Adaptive Gating
-            gate = torch.sigmoid(self.gate_proj(x_reshaped))
-            gamma = gamma * gate
-            
-            # Dynamic Friction
-            friction = torch.sigmoid(self.forget_gate(x_reshaped))
+            friction = torch.sigmoid(self.forget_gate(x))
             gamma = gamma + friction * v
             
         return torch.clamp(gamma, -self.clamp_val, self.clamp_val)
@@ -216,25 +203,33 @@ class ReactiveChristoffel(LowRankChristoffel):
         self.black_hole_strength = self.active_cfg.get('singularities', {}).get('strength', 10.0)
 
     def forward(self, v, x=None):
-        # Try Fused Modular CUDA Kernel
-        if CUDA_AVAILABLE and v.is_cuda:
-            try:
-                from gfn.cuda.ops import reactive_christoffel_fused
-                # Pass Active Parameters
-                V_w = self.V.weight if (x is not None and self.active_cfg.get('singularities', {}).get('enabled', False)) else None
-                pos_x = x if (V_w is not None) else None
+        # Try CUDA path with Active Inference
+        try:
+            from gfn.cuda.ops import christoffel_fused, CUDA_AVAILABLE
+            if CUDA_AVAILABLE and v.is_cuda:
+                # Extract Active Inference parameters
+                x_in = x if x is not None else torch.empty(0, device=v.device)
                 
-                return reactive_christoffel_fused(
-                    v, self.U, self.W, 
-                    x=pos_x, V_w=V_w, 
-                    plasticity=self.plasticity if self.active_cfg.get('reactive_curvature', {}).get('enabled', False) else 0.0,
-                    sing_thresh=self.singularity_threshold,
-                    sing_strength=self.black_hole_strength
-                )
-            except Exception:
-                pass
+                # Singularities require V_w  
+                sing_cfg = self.active_cfg.get('singularities', {})
+                if sing_cfg.get('enabled', False) and x is not None:
+                    V_w_in = self.V.weight.t()  # [1, dim] -> [dim, 1] -> [1, dim]
+                else:
+                    V_w_in = torch.empty(0, device=v.device)
+                
+                # Plasticity
+                react_cfg = self.active_cfg.get('reactive_curvature', {})
+                plasticity = self.plasticity if react_cfg.get('enabled', False) else 0.0
+                
+                # Singularity params
+                sing_thresh = sing_cfg.get('threshold', 0.9) if sing_cfg.get('enabled', False) else 1.0
+                sing_strength = sing_cfg.get('strength', 1.0) if sing_cfg.get('enabled', False) else 1.0
+                
+                return christoffel_fused(v, self.U, self.W, x_in, V_w_in, plasticity, sing_thresh, sing_strength)
+        except Exception:
+            pass
 
-        # Base curvature (static memory or PyTorch fallback)
+        # Fallback PyTorch: Base curvature (static memory or PyTorch fallback)
         gamma = super().forward(v, x)
         
         if not self.active_cfg.get('enabled', False):

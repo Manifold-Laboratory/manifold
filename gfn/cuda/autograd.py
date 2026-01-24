@@ -1,12 +1,20 @@
 
+
 import torch
+import sys
 from torch.autograd import Function
 
+# Import CUDA_AVAILABLE from ops.py to ensure consistency
 try:
-    import gfn_cuda
-    CUDA_AVAILABLE = True
+    from .ops import CUDA_AVAILABLE, gfn_cuda
 except ImportError:
-    CUDA_AVAILABLE = False
+    try:
+        from gfn.cuda.ops import CUDA_AVAILABLE, gfn_cuda
+    except ImportError:
+        CUDA_AVAILABLE = False
+        gfn_cuda = None
+
+print(f"[DEBUG] gfn.cuda.autograd LOADED. CUDA_AVAILABLE={CUDA_AVAILABLE} from {__file__}")
 
 class ChristoffelFusedFn(Function):
     @staticmethod
@@ -164,57 +172,57 @@ def leapfrog_fused_autograd(x, v, f, U, W, dt, dt_scale, steps):
 
 class RecurrentManifoldFusedFn(Function):
     @staticmethod
-    def forward(ctx, x, v, f, U, W, dt, dt_scale, num_heads, plasticity, sing_thresh, sing_strength):
-        # Professional Forward uses the Fused Trajectory Kernel
-        ctx.save_for_backward(x, v, f, U, W)
-        ctx.dt, ctx.dt_scale, ctx.num_heads = dt, dt_scale, num_heads
+    def forward(ctx, x, v, f, U, W, dt, dt_scales, forget_rates, num_heads, plasticity, sing_thresh, sing_strength, mix_x=None, mix_v=None):
+        ctx.save_for_backward(x, v, f, U, W, dt_scales, forget_rates)
+        ctx.dt, ctx.num_heads = dt, num_heads
         ctx.plasticity, ctx.sing_thresh, ctx.sing_strength = plasticity, sing_thresh, sing_strength
+        ctx.mix_x, ctx.mix_v = mix_x, mix_v
         
-        # Kernel handles Heads/Layers internally
+        mix_x_in = mix_x if mix_x is not None else torch.empty(0, device=x.device)
+        mix_v_in = mix_v if mix_v is not None else torch.empty(0, device=x.device)
+        
         res = gfn_cuda.recurrent_manifold_fused(x.contiguous(), v.contiguous(), f.contiguous(), 
-                                               U.contiguous(), W.contiguous(), dt, dt_scale, num_heads,
-                                               plasticity, sing_thresh, sing_strength)
-        return res
+                                               U.contiguous(), W.contiguous(), dt, 
+                                               dt_scales.contiguous(), forget_rates.contiguous(), num_heads,
+                                               plasticity, sing_thresh, sing_strength,
+                                               mix_x_in.contiguous(), mix_v_in.contiguous())
+        x_state, v_state, x_out_seq, reg_loss = res
+        return x_state, v_state, x_out_seq, reg_loss
 
     @staticmethod
     def backward(ctx, grad_x_final, grad_v_final, grad_x_seq, grad_reg_loss):
-        """
-        NATIVE CUDA BPTT: Optimized for Professional Speed.
-        Calls the specialized recurrent_manifold_backward kernel which implements
-        gradient checkpointing and fused backprop on the GPU.
-        """
-        x0, v0, f_seq, U_stack, W_stack = ctx.saved_tensors
+        x0, v0, f_seq, U_stack, W_stack, dt_scales, forget_rates = ctx.saved_tensors
         B, T, D = f_seq.shape
-        H = ctx.num_heads
-        dt, dt_scale = ctx.dt, ctx.dt_scale
+        H, dt = ctx.num_heads, ctx.dt
         pl, st, ss = ctx.plasticity, ctx.sing_thresh, ctx.sing_strength
+        mix_x, mix_v = ctx.mix_x, ctx.mix_v
         
-        # Ensure gradients are contiguous and present
+        mix_x_in = mix_x if mix_x is not None else torch.empty(0, device=x0.device)
+        mix_v_in = mix_v if mix_v is not None else torch.empty(0, device=x0.device)
         gx_seq = grad_x_seq.contiguous() if grad_x_seq is not None else torch.empty(0, device=x0.device)
         gx_final = grad_x_final.contiguous() if grad_x_final is not None else torch.empty(0, device=x0.device)
         gv_final = grad_v_final.contiguous() if grad_v_final is not None else torch.empty(0, device=x0.device)
         
-        # We need the FINAL state (x_T, v_T).
-        # We re-run forward pass here (cheap) to get the start point for backward.
         with torch.no_grad():
              res = gfn_cuda.recurrent_manifold_fused(
                 x0.contiguous(), v0.contiguous(), f_seq.contiguous(), 
-                U_stack.contiguous(), W_stack.contiguous(), dt, dt_scale, H,
-                pl, st, ss)
+                U_stack.contiguous(), W_stack.contiguous(), dt, dt_scales.contiguous(), forget_rates.contiguous(), H,
+                pl, st, ss, mix_x_in.contiguous(), mix_v_in.contiguous())
              x_final, v_final, _, _ = res
         
-        # Launch Backward Kernel
         grads = gfn_cuda.recurrent_manifold_backward(
             gx_seq, gx_final, gv_final,
             x_final, v_final, 
             f_seq.contiguous(), U_stack.contiguous(), W_stack.contiguous(),
-            dt, dt_scale, H,
-            pl, st, ss
+            dt, dt_scales.contiguous(), forget_rates.contiguous(), H,
+            pl, st, ss, mix_x_in.contiguous(), mix_v_in.contiguous()
         )
         
-        grad_x_init, grad_v_init, grad_f, grad_U, grad_W = grads
-        return grad_x_init, grad_v_init, grad_f, grad_U, grad_W, None, None, None, None, None, None
+        grad_x_init, grad_v_init, grad_f, grad_U, grad_W, grad_mix_x, grad_mix_v, grad_forget_rates = grads
+        
+        return grad_x_init, grad_v_init, grad_f, grad_U, grad_W, None, None, grad_forget_rates, None, None, None, None, (grad_mix_x if mix_x is not None else None), (grad_mix_v if mix_v is not None else None)
 
-def recurrent_manifold_fused_autograd(x, v, f, U, W, dt, dt_scale, num_heads, plasticity=0.0, sing_thresh=1.0, sing_strength=1.0):
-    if not CUDA_AVAILABLE or not x.is_cuda: return None
-    return RecurrentManifoldFusedFn.apply(x.contiguous(), v.contiguous(), f.contiguous(), U.contiguous(), W.contiguous(), dt, dt_scale, num_heads, plasticity, sing_thresh, sing_strength)
+def recurrent_manifold_fused_autograd(x, v, f, U, W, dt, dt_scales, forget_rates, num_heads, plasticity=0.0, sing_thresh=1.0, sing_strength=1.0, mix_x=None, mix_v=None):
+    if not CUDA_AVAILABLE or not x.is_cuda:
+        return None
+    return RecurrentManifoldFusedFn.apply(x.contiguous(), v.contiguous(), f.contiguous(), U.contiguous(), W.contiguous(), dt, dt_scales, forget_rates, num_heads, plasticity, sing_thresh, sing_strength, mix_x, mix_v)

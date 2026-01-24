@@ -1,0 +1,15 @@
+{
+    "benchmark": "loss_landscape",
+    "category": "viz",
+    "timestamp": "2026-01-24T01:56:40.781151",
+    "hardware": {
+        "device": "NVIDIA GeForce GTX 1650",
+        "torch_version": "2.6.0+cu124"
+    },
+    "data": {
+        "gfn_roughness_score": 0.00026731434344212115,
+        "gpt_roughness_score": 0.010460118659907236,
+        "smoothness_improvement": 39.130390880551346,
+        "resolution": "40x40 Grid"
+    }
+}

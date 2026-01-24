@@ -45,8 +45,9 @@ def compute_loss_surface(model, inputs, targets, d1, d2, resolution=30, scale=0.
                 Z[j, i] = criterion(logits.view(-1, logits.size(-1)), targets.view(-1)).item()
                 
     # Restore
-    for p, orig in zip(model.parameters(), orig_params):
-        p.copy_(orig)
+    with torch.no_grad():
+        for p, orig in zip(model.parameters(), orig_params):
+            p.copy_(orig)
         
     return X, Y, Z
 

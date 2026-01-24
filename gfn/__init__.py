@@ -89,6 +89,7 @@ INTEGRATORS = {
 
 __all__ = [
     "GFN",
+    "Manifold",  # Export base class
     "GLayer", "RiemannianGating",
     "LowRankChristoffel", 
     "HeunIntegrator", "RK4Integrator", "SymplecticIntegrator", "LeapfrogIntegrator", 

@@ -27,7 +27,19 @@ class RiemannianGating(nn.Module):
         """
         Returns a scaling factor for dt.
         """
-        # Scalar curvature estimate "R"
+        # Try CUDA path
+        try:
+            from .cuda.ops import dynamic_gating_fused, CUDA_AVAILABLE
+            if CUDA_AVAILABLE and x.is_cuda:
+                W1 = self.curvature_net[0].weight  # [dim/4, dim]
+                b1 = self.curvature_net[0].bias    # [dim/4]
+                W2 = self.curvature_net[2].weight  # [1, dim/4]
+                b2 = self.curvature_net[2].bias    # [1]
+                return dynamic_gating_fused(x, W1, b1, W2, b2)
+        except Exception:
+            pass
+        
+        # Fallback PyTorch
         return self.curvature_net(x)
 
 
@@ -148,9 +160,9 @@ class MLayer(nn.Module):
         # This allows us to call a single bmm instead of looping over heads.
         self.register_buffer('headless_mode', torch.tensor(False)) 
         
-        # We need to stack U and W from all heads
-        self.U_stack = nn.Parameter(torch.stack([c.U for c in self.christoffels])) # [H, d, R]
-        self.W_stack = nn.Parameter(torch.stack([c.W for c in self.christoffels])) # [H, d, R]
+        # We REMOVED self.U_stack / self.W_stack parameters as they were redundant copies.
+        # model.py generates U_stack dynamically from self.christoffels for the fused kernel.
+
         
         # Integrators per head and Time Scaling
         # Check if "Autonomous Geometric Attention" (Dynamic Time) is enabled
@@ -245,12 +257,9 @@ class MLayer(nn.Module):
         """
         batch = x.shape[0]
         
-        # 1. Pre-LayerNorm 
+        # We bypass LayerNorm on Hamiltonian states x and v to preserve history
         x_norm = self.norm_x(x)
-        
-        # Soft Velocity Norm (Differentiable Energy Clamp)
-        v_mag = torch.norm(v, dim=-1, keepdim=True)
-        v_norm = v * torch.min(torch.ones_like(v_mag), 5.0 / (v_mag + 1e-6))
+        v_norm = v # Unit-norm is handled per head
         
         # 2. Reshape into Head Batches [Heads, Batch, HeadDim]
         # This is the "Professional" way to avoid Python loops.
@@ -290,16 +299,18 @@ class MLayer(nn.Module):
         christoffel_outputs = []
         
         for i in range(self.heads):
-            # Pass 3D reference to U/W if supported, or just use individual modules
-            # Let's ensure integrators use the single head but we've already 
-            # optimized Christoffel.forward to be fast.
+            # LEVEL 8 PHYSICAL ALIGNMENT: Strict Unit-Norm Velocity
+            # We must force |v|=1.0 per head to match the Fused CUDA kernel
+            vh_in = v_heads[i]
+            v_norm_val = torch.norm(vh_in, dim=-1, keepdim=True) + 1e-6
+            vh_unit = vh_in / v_norm_val
             
             # Step for head i
-            xh, vh = self.integrators[i](x_heads[i], v_heads[i], force=f_heads[i], dt_scale=scale[i])
+            xh, vh = self.integrators[i](x_heads[i], vh_unit, force=f_heads[i], dt_scale=scale[i])
             
-            # Local stability
-            v_mag_h = torch.norm(vh, dim=-1, keepdim=True)
-            vh = vh * torch.clamp(5.0 / (v_mag_h + 1e-6), max=1.0)
+            # Re-normalize after step for absolute stability (Matches CUDA s_v_h /= v_norm)
+            vh_norm_out = torch.norm(vh, dim=-1, keepdim=True) + 1e-6
+            vh = vh / vh_norm_out
             
             x_outs.append(xh)
             v_outs.append(vh)
@@ -314,6 +325,7 @@ class MLayer(nn.Module):
             try:
                 from .cuda.ops import head_mixing_fused, CUDA_AVAILABLE
                 if CUDA_AVAILABLE and x.is_cuda:
+
                     # Stack outputs: [H, B, D/H]
                     x_stacked = torch.stack(x_outs, dim=0)
                     v_stacked = torch.stack(v_outs, dim=0)

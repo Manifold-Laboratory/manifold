@@ -14,7 +14,7 @@ class ImplicitReadout(nn.Module):
         temp_init: Initial temperature (high = smooth gradients)
         temp_final: Final temperature (low = sharp outputs)
     """
-    def __init__(self, dim, coord_dim, temp_init=5.0, temp_final=0.5):
+    def __init__(self, dim, coord_dim, temp_init=1.0, temp_final=0.2):
         super().__init__()
         
         # MLP to output coordinates
@@ -24,13 +24,18 @@ class ImplicitReadout(nn.Module):
             nn.Linear(dim, coord_dim)
         )
         
+        # Tag for specialized Level 5 initialization in model.py
+        for module in self.mlp.modules():
+            if isinstance(module, nn.Linear):
+                module.is_readout = True
+        
         # Temperature annealing parameters
         self.temp_init = temp_init
         self.temp_final = temp_final
         
         # Training progress tracker
         self.register_buffer('training_step', torch.tensor(0))
-        self.register_buffer('max_steps', torch.tensor(1500))
+        self.register_buffer('max_steps', torch.tensor(1000))
         
     def forward(self, x):
         """
@@ -40,20 +45,20 @@ class ImplicitReadout(nn.Module):
             bits_soft: [batch, seq, coord_dim] in range [0, 1]
         """
         # Get continuous coordinates
-        coords = self.mlp(x)  # [batch, seq, coord_dim]
+        # LEVEL 3.2: READOUT GAIN ALIGNMENT
+        # Boost gain to ensure signal overcomes initial high temperature
+        coords = self.mlp(x) * 10.0  # [batch, seq, coord_dim]
         
         if self.training:
             # Temperature annealing: high temp early (smooth), low temp late (sharp)
             progress = min(1.0, self.training_step.float() / self.max_steps)
             temp = self.temp_init * (1.0 - progress) + self.temp_final * progress
             
-            # Soft threshold with temperature
-            bits_soft = torch.sigmoid(coords / temp)
+            # Return raw scaled coordinates for BCEWithLogitsLoss compatibility
+            return coords / temp
         else:
-            # Inference: use final temperature for sharp outputs
-            bits_soft = torch.sigmoid(coords / self.temp_final)
-        
-        return bits_soft
+            # Inference: return sigmoided bits for discrete prediction
+            return torch.sigmoid(coords / self.temp_final)
     
     def update_step(self):
         """Call this after each optimizer step to update temperature schedule."""
