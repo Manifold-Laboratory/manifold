@@ -1,4 +1,4 @@
-# IN PROGRESS
+# UNSTABLE VERSION
 
 # Manifold: Geometric Sequence Modeling via Symplectic Flows
 
