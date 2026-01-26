@@ -372,7 +372,8 @@ class MLayer(nn.Module):
                 'W_forget_stack': W_forget_stack[i:i+1], # [1, D, D]
                 'W_input_stack': W_input_stack[i:i+1],
                 'b_forget_stack': b_forget_stack[i:i+1],
-                'topology': self.topology_id
+                'topology': self.topology_id,
+                'collect_christ': collect_christ
             }
             
             xh, vh = self.integrators[i](x_heads[i], v_heads[i], force=f_heads[i], dt_scale=scale[i], **extra_kwargs)

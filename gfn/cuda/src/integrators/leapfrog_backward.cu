@@ -63,15 +63,9 @@ __global__ void leapfrog_backward_kernel(
     for (int i = tid; i < dim; i += blockDim.x) { s_gx[i] = grad_x_new[b * dim + i]; s_gv[i] = grad_v_new[b * dim + i]; }
     __syncthreads();
     
-    float* s_dmu = s_v_half; // Reuse shared for mu gradient
     const float half_dt = 0.5f * eff_dt;
 
     for (int step = steps - 1; step >= 0; step--) {
-        // Recompute Mu/Plasticity for the step (Approximate as midpoint or previous)
-        compute_friction_coeff(s_v_half, s_x, nullptr, nullptr, dim, tid, topology); // Need Wf/bf? Leapfrog backward kernel missing them in signature!
-        // WARNING: standalone leapfrog_backward currently lacks friction params in its launch signature.
-        // We prioritize Recurrent Manifold for training. Standalone Leapfrog is primarily for specific benchmark verification.
-        
         for (int i = tid; i < dim; i += blockDim.x) {
             float gvn = s_gv[i];
             

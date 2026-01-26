@@ -84,9 +84,16 @@ class LeapfrogFusedFn(Function):
     def backward(ctx, grad_xn, grad_vn):
         x, v, f, U, W = ctx.saved_tensors
         f_in = f if f is not None else torch.empty(0, device=x.device, dtype=x.dtype)
-        gx = torch.zeros_like(x); gv = torch.zeros_like(v); gf = torch.zeros_like(f_in) if f is not None else torch.empty(0, device=x.device)
-        gU = torch.zeros_like(U); gW = torch.zeros_like(W)
-        gfn_cuda.launch_leapfrog_backward(grad_xn.contiguous(), grad_vn.contiguous(), x.contiguous(), v.contiguous(), f_in.contiguous(), U.contiguous(), W.contiguous(), gx, gv, gf, gU, gW, x.size(0), x.size(1), U.size(1), ctx.dt, ctx.dt_scale, ctx.steps, ctx.topology, ctx.R, ctx.r)
+        
+        # Correct call to bound C++ function
+        grads = gfn_cuda.leapfrog_backward(
+            grad_xn.contiguous(), grad_vn.contiguous(), 
+            x.contiguous(), v.contiguous(), f_in.contiguous(), 
+            U.contiguous(), W.contiguous(),
+            ctx.dt, ctx.dt_scale, ctx.steps, ctx.topology, ctx.R, ctx.r
+        )
+        gx, gv, gf, gU, gW = grads
+        
         return gx, gv, (gf if f is not None else None), gU, gW, None, None, None, None, None, None, None, None, None
 
 def leapfrog_fused_autograd(x, v, f, U, W, dt, dt_scale, steps, topology=0, Wf=None, bf=None, plasticity=0.0, R=2.0, r=1.0):

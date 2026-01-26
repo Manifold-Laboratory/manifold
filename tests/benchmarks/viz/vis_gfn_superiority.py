@@ -24,7 +24,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # Import GFN Models & Physics
 from gfn.model import Manifold
 from gfn.optim import RiemannianAdam
-from gfn.losses import geodesic_regularization, hamiltonian_loss, CircularDistanceLoss
+from gfn.losses import geodesic_regularization, hamiltonian_loss, ToroidalDistanceLoss
 
 # Import Baselines & Utils
 from tests.benchmarks.baselines import MicroGPT
@@ -50,10 +50,10 @@ class ParityTask:
         x = torch.randint(0, self.vocab_size, (batch_size, self.length), device=device)
         y_int = torch.cumsum(x, dim=1) % self.mod
         PI = 3.14159265359
-        y_angle = y_int.float() * PI
+        y_angle = (y_int.float() * 2.0 - 1.0) * (PI * 0.5)
         return x, y_int, y_angle
 
-def train_step_manifold(model, optimizer, scheduler, inputs, targets, device):
+def train_step_manifold(model, optimizer, scheduler, inputs, targets, targets_class, device):
     optimizer.zero_grad()
     output = model(inputs, collect_christ=False)
     
@@ -65,7 +65,7 @@ def train_step_manifold(model, optimizer, scheduler, inputs, targets, device):
     y_float = targets.float()
     y_expanded = y_float.unsqueeze(-1).expand_as(x_pred)
     
-    criterion = CircularDistanceLoss()
+    criterion = ToroidalDistanceLoss()
     loss_val = criterion(x_pred, y_expanded)
     
     loss_phy = 0.0
@@ -94,9 +94,13 @@ def train_step_manifold(model, optimizer, scheduler, inputs, targets, device):
     with torch.no_grad():
         PI = 3.14159265359
         TWO_PI = 2.0 * PI
-        diff = torch.abs(x_pred - y_expanded) % TWO_PI
-        diff = torch.min(diff, TWO_PI - diff)
-        acc = (diff.mean(dim=-1) < 1.0).float().mean().item()
+        half_pi = PI * 0.5
+        dist_pos = torch.min(torch.abs(x_pred - half_pi) % TWO_PI, TWO_PI - (torch.abs(x_pred - half_pi) % TWO_PI))
+        dist_neg = torch.min(torch.abs(x_pred + half_pi) % TWO_PI, TWO_PI - (torch.abs(x_pred + half_pi) % TWO_PI))
+        d_pos = dist_pos.mean(dim=-1)
+        d_neg = dist_neg.mean(dim=-1)
+        preds = (d_pos < d_neg).long()
+        acc = (preds == targets_class).float().mean().item()
     
     return total_loss.item(), acc
 
@@ -130,13 +134,18 @@ def train_model(model_name, model, max_steps=1000, device='cuda'):
     history = {"loss": [], "acc": []}
     
     pbar = tqdm(range(max_steps), desc=f"Training {model_name}")
+    acc_threshold = 0.98
+    loss_threshold = 0.2
+    min_steps = 100
+    patience = 20
+    hits = 0
     for i in pbar:
         L = 20
         task = ParityTask(length=L)
         x, y_class, y_angle = task.generate_batch(128, device=device)
         
         if is_manifold:
-            loss, acc = train_step_manifold(model, optimizer, scheduler, x, y_angle, device)
+            loss, acc = train_step_manifold(model, optimizer, scheduler, x, y_angle, y_class, device)
         else:
             loss, acc = train_step_gpt(model, optimizer, scheduler, x, y_class, device)
             
@@ -146,7 +155,12 @@ def train_model(model_name, model, max_steps=1000, device='cuda'):
         if i % 5 == 0:
             pbar.set_postfix({"loss": f"{loss:.4f}", "acc": f"{acc*100:.1f}%"})
 
-        if acc >= 0.999:
+        if i >= min_steps and acc >= acc_threshold and loss <= loss_threshold:
+            hits += 1
+        else:
+            hits = 0
+
+        if hits >= patience:
             print(f"\n[GFN] {model_name} converged at step {i}")
             break
                 
@@ -178,11 +192,12 @@ def evaluate_scaling(model_name, model, lengths, device='cuda'):
                         state = out[1]
                         PI = 3.14159265359
                         TWO_PI = 2.0 * PI
-                        dist_to_pi = torch.min(torch.abs(l - PI) % TWO_PI, TWO_PI - (torch.abs(l - PI) % TWO_PI))
-                        dist_to_0 = torch.min(torch.abs(l) % TWO_PI, TWO_PI - (torch.abs(l) % TWO_PI))
-                        d_pi = dist_to_pi.mean(dim=-1).view(-1)
-                        d_0 = dist_to_0.mean(dim=-1).view(-1)
-                        preds_list.append((d_pi < d_0).long())
+                        half_pi = PI * 0.5
+                        dist_pos = torch.min(torch.abs(l - half_pi) % TWO_PI, TWO_PI - (torch.abs(l - half_pi) % TWO_PI))
+                        dist_neg = torch.min(torch.abs(l + half_pi) % TWO_PI, TWO_PI - (torch.abs(l + half_pi) % TWO_PI))
+                        d_pos = dist_pos.mean(dim=-1).view(-1)
+                        d_neg = dist_neg.mean(dim=-1).view(-1)
+                        preds_list.append((d_pos < d_neg).long())
                     return torch.stack(preds_list, dim=1)
                 else:
                     return model(x).argmax(dim=-1)
@@ -312,4 +327,3 @@ def run_superiority_benchmark():
 
 if __name__ == "__main__":
     run_superiority_benchmark()
-

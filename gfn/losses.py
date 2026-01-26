@@ -8,6 +8,7 @@ Physics-informed loss functions for stable geodesic training.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from .geometry.boundaries import toroidal_dist_python
 
 
 def hamiltonian_loss(velocities: list, states: list = None, metric_fn=None, lambda_h: float = 0.01, forces: list = None) -> torch.Tensor:
@@ -143,6 +144,17 @@ class CircularDistanceLoss(nn.Module):
         
     def forward(self, x_pred, x_target):
         return circular_distance_loss(x_pred, x_target)
+
+def toroidal_distance_loss(x_pred, x_target):
+    dist = toroidal_dist_python(x_pred, x_target)
+    return dist.pow(2).mean()
+
+class ToroidalDistanceLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x_pred, x_target):
+        return toroidal_distance_loss(x_pred, x_target)
 
 
 class GFNLoss(nn.Module):
