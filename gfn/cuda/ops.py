@@ -9,7 +9,7 @@ from pathlib import Path
 
 # CUDA op loading and Python fallbacks
 
-CUDA_AVAILABLE = True
+CUDA_AVAILABLE = False
 gfn_cuda = None
 
 def get_cuda_path():

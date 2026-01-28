@@ -84,13 +84,17 @@ class LeapfrogFusedFn(Function):
     def backward(ctx, grad_xn, grad_vn):
         x, v, f, U, W = ctx.saved_tensors
         f_in = f if f is not None else torch.empty(0, device=x.device, dtype=x.dtype)
+        if isinstance(ctx.dt_scale, torch.Tensor):
+            dt_scale = float(ctx.dt_scale.reshape(-1)[0].item()) if ctx.dt_scale.numel() > 0 else 1.0
+        else:
+            dt_scale = float(ctx.dt_scale)
         
         # Correct call to bound C++ function
         grads = gfn_cuda.leapfrog_backward(
             grad_xn.contiguous(), grad_vn.contiguous(), 
             x.contiguous(), v.contiguous(), f_in.contiguous(), 
             U.contiguous(), W.contiguous(),
-            ctx.dt, ctx.dt_scale, ctx.steps, ctx.topology, ctx.R, ctx.r
+            ctx.dt, dt_scale, ctx.steps, ctx.topology, ctx.R, ctx.r
         )
         gx, gv, gf, gU, gW = grads
         

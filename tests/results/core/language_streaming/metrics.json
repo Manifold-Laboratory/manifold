@@ -1,0 +1,26 @@
+{
+    "benchmark": "language_streaming",
+    "category": "core",
+    "timestamp": "2026-01-27T21:11:10.467393",
+    "hardware": {
+        "device": "NVIDIA GeForce GTX 1650",
+        "torch_version": "2.6.0+cu124"
+    },
+    "data": {
+        "source": "wikitext",
+        "tokenizer": "gpt2",
+        "vocab_size": 50257,
+        "train_loss": 0.5410462379455566,
+        "eval_loss": 0.0,
+        "eval_ppl": 1.0,
+        "reload_eval_loss": 0.0,
+        "train_time_sec": 125.70370984077454,
+        "peak_vram_mb": 140.48779296875,
+        "steps": 20,
+        "eval_steps": 5,
+        "seq_len": 64,
+        "batch_size": 2,
+        "max_texts": 200,
+        "max_val_texts": 50
+    }
+}
