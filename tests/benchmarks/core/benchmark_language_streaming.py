@@ -181,7 +181,19 @@ def compute_holographic_loss(model, output, x_pred, target_angles, mask):
     return loss_val + loss_phy + loss_ham
 
 
-def run_training(model, loader, optimizer, scheduler, device, max_steps, log_every, loss_fn, pad_token_id):
+def run_training(
+    model,
+    loader,
+    optimizer,
+    scheduler,
+    device,
+    max_steps,
+    log_every,
+    loss_fn,
+    pad_token_id,
+    vocab_size,
+    use_holographic,
+):
     model.train()
     total_loss = 0.0
     data_iter = iter(loader)
@@ -198,7 +210,11 @@ def run_training(model, loader, optimizer, scheduler, device, max_steps, log_eve
         optimizer.zero_grad()
         output = model(src, collect_christ=False)
         logits = extract_logits(output)
-        total_loss_val = loss_fn(logits.view(-1, logits.size(-1)), tgt.view(-1))
+        if use_holographic:
+            target_angles = tokens_to_angles(tgt, vocab_size).unsqueeze(-1).expand_as(logits)
+            total_loss_val = compute_holographic_loss(model, output, logits, target_angles, mask)
+        else:
+            total_loss_val = loss_fn(logits.view(-1, logits.size(-1)), tgt.view(-1))
         if torch.isnan(total_loss_val):
             continue
         total_loss_val.backward()
@@ -208,21 +224,26 @@ def run_training(model, loader, optimizer, scheduler, device, max_steps, log_eve
             scheduler.step()
         total_loss += total_loss_val.item()
         avg = total_loss / step
-        ppl = math.exp(min(avg, 20.0))
+        ppl = math.exp(min(avg, 20.0)) if not use_holographic else None
         acc = 0.0
         if logits.dim() == 3:
-            pred_ids = logits.argmax(dim=-1)
+            if use_holographic:
+                pred_angles = logits.mean(dim=-1)
+                pred_ids = angles_to_token_ids(pred_angles, vocab_size)
+            else:
+                pred_ids = logits.argmax(dim=-1)
             if mask.any():
                 acc = (pred_ids[mask] == tgt[mask]).float().mean().item()
             else:
                 acc = 0.0
         if step % log_every == 0 or step == 1:
-            pbar.set_postfix(loss=f"{avg:.4f}", ppl=f"{ppl:.2f}", acc=f"{acc*100:.2f}%")
+            ppl_display = f"{ppl:.2f}" if ppl is not None else "n/a"
+            pbar.set_postfix(loss=f"{avg:.4f}", ppl=ppl_display, acc=f"{acc*100:.2f}%")
     return total_loss / max_steps
 
 
 @torch.no_grad()
-def run_evaluation(model, loader, device, max_steps, loss_fn, pad_token_id):
+def run_evaluation(model, loader, device, max_steps, loss_fn, pad_token_id, vocab_size, use_holographic):
     model.eval()
     total_loss = 0.0
     data_iter = iter(loader)
@@ -236,7 +257,12 @@ def run_evaluation(model, loader, device, max_steps, loss_fn, pad_token_id):
         tgt = tgt.to(device)
         output = model(src, collect_christ=False)
         logits = extract_logits(output)
-        loss = loss_fn(logits.view(-1, logits.size(-1)), tgt.view(-1))
+        if use_holographic:
+            mask = tgt != pad_token_id
+            target_angles = tokens_to_angles(tgt, vocab_size).unsqueeze(-1).expand_as(logits)
+            loss = compute_holographic_loss(model, output, logits, target_angles, mask)
+        else:
+            loss = loss_fn(logits.view(-1, logits.size(-1)), tgt.view(-1))
         if not torch.isnan(loss):
             total_loss += loss.item()
     return total_loss / max_steps
@@ -310,7 +336,10 @@ def run_language_streaming_test(args):
             scheduler = None
 
     logger = ResultsLogger("language_streaming", category="core")
-    loss_fn = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)
+    from gfn.readout import ImplicitReadout
+
+    use_holographic = isinstance(model.readout, ImplicitReadout)
+    loss_fn = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id) if not use_holographic else None
     t0 = time.time()
     train_loss = run_training(
         model,
@@ -322,12 +351,21 @@ def run_language_streaming_test(args):
         args.log_every,
         loss_fn,
         tokenizer.pad_token_id,
+        vocab_size,
+        use_holographic,
     )
     train_time = time.time() - t0
     eval_loss = run_evaluation(
-        model, val_loader, device, args.eval_steps, loss_fn, tokenizer.pad_token_id
+        model,
+        val_loader,
+        device,
+        args.eval_steps,
+        loss_fn,
+        tokenizer.pad_token_id,
+        vocab_size,
+        use_holographic,
     )
-    eval_ppl = math.exp(min(eval_loss, 20.0))
+    eval_ppl = math.exp(min(eval_loss, 20.0)) if not use_holographic else None
 
     save_path = logger.results_dir / "language_streaming_model.pt"
     torch.save(
@@ -354,12 +392,26 @@ def run_language_streaming_test(args):
     ).to(device)
     reloaded.load_state_dict(torch.load(save_path, map_location=device)["model_state_dict"])
     reload_eval_loss = run_evaluation(
-        reloaded, val_loader, device, args.eval_steps, loss_fn, tokenizer.pad_token_id
+        reloaded,
+        val_loader,
+        device,
+        args.eval_steps,
+        loss_fn,
+        tokenizer.pad_token_id,
+        vocab_size,
+        use_holographic,
     )
 
     def _eval_call():
         run_evaluation(
-            reloaded, val_loader, device, min(5, args.eval_steps), loss_fn, tokenizer.pad_token_id
+            reloaded,
+            val_loader,
+            device,
+            min(5, args.eval_steps),
+            loss_fn,
+            tokenizer.pad_token_id,
+            vocab_size,
+            use_holographic,
         )
 
     peak_mem = PerformanceStats.measure_peak_memory(reloaded, _eval_call)
@@ -383,9 +435,12 @@ def run_language_streaming_test(args):
     }
     logger.save_json(metrics)
     print(f"Model saved to: {save_path}")
-    print(
-        f"Eval Loss: {eval_loss:.4f} | PPL: {eval_ppl:.2f} | Reload Eval Loss: {reload_eval_loss:.4f}"
-    )
+    if eval_ppl is None:
+        print(f"Eval Loss: {eval_loss:.4f} | PPL: n/a | Reload Eval Loss: {reload_eval_loss:.4f}")
+    else:
+        print(
+            f"Eval Loss: {eval_loss:.4f} | PPL: {eval_ppl:.2f} | Reload Eval Loss: {reload_eval_loss:.4f}"
+        )
 
 
 def build_arg_parser():
