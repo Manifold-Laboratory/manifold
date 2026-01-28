@@ -213,6 +213,6 @@ Manifold is an active research project. If you utilize this framework or its fin
 ---
 
 <div align="center">
-  <b>Manifold Laboratory</b><br>
+  <b>joaquín Stürtz</b><br>
   <i>Geometric Intelligence via Physical Principles</i>
 </div>
